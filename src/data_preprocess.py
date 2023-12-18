@@ -95,7 +95,7 @@ if __name__=='__main__':
             uid += 1
     selected_physio['uid'] = selected_physio['uid'].astype(int)
 
-    selected_physio.to_csv(os.path.join(path_processed, 'HiRID_selected_variables-output_processed.csv'))
+    selected_physio.to_csv(os.path.join(path_processed, 'selected_physio.csv'))
 
     #####################################################
     # Load raw data from HiRID dataset
@@ -212,11 +212,11 @@ if __name__=='__main__':
     selected_pharma = selected_pharma.drop(
         selected_pharma[~selected_pharma['variableid'].isin(pharma_data_valid['pharmaid'].unique())].index
     ).reset_index(drop=True)
-    pickle.dump(selected_pharma, open(os.path.join(path_processed, 'selected_pharma_final.p'), 'wb'))
+    pickle.dump(selected_pharma, open(os.path.join(path_processed, 'selected_pharma.p'), 'wb'))
 
     # pharma_data_valid = pickle.load(open(os.path.join(path_processed, 'pharma_data_valid.p'), 'rb'))
     # patient_data_valid = pickle.load(open(os.path.join(path_processed, 'patient_data_valid_with_uid.p'), 'rb'))
-    # selected_physio = pd.read_csv(os.path.join(path_processed, 'HiRID_selected_variables-output_processed.csv'))
+    # selected_physio = pd.read_csv(os.path.join(path_processed, 'selected_physio.csv'))
 
     # calculate data percentiles for later normalization
     # physio data
@@ -226,12 +226,12 @@ if __name__=='__main__':
     norm_param_physio['physioname'] = selected_physio.groupby('uid').first()['variablename']
     for uid in tqdm(selected_physio['uid'].unique()):
         name = selected_physio.loc[selected_physio['uid'] == uid, 'variablename'].unique().item()
-        data = patient_data_valid.loc[(patient_data_valid['variableid'] == uid)]
+        data = patient_data_valid.loc[(patient_data_valid['uid'] == uid)]
         percs = [np.nanpercentile(data['value'].values, p) for p in cols[2:13]]
         norm_param_physio.loc[uid, cols[2:13]] = percs
         norm_param_physio.loc[uid, cols[1]] = data['value'].min()
         norm_param_physio.loc[uid, cols[13]] = data['value'].max()
-    # norm_param_physio.to_csv(os.path.join(path_processed, 'robnorm_pararms_physio.csv'))
+    norm_param_physio.to_csv(os.path.join(path_processed, 'robnorm_pararms_physio.csv'))
     # pharma data
     cols = ['pharmaname', 'min', 0.1, 0.5, 1, 5, 25, 50, 75, 95, 99, 99.5, 99.9, 'max']
     # idx = selected_pharma['variableid'].tolist()

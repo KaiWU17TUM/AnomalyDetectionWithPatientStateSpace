@@ -17,6 +17,7 @@ sys.path.append(os.path.abspath('.'))
 # print(sys.path)
 from utils.preprocess import format_data, robust_normalize
 
+os.chdir('/home/kai/DigitalICU/Experiments/HIRID-PatientStateSpace/src')
 
 def generate_individual_files(args):
     pid = args['pid']
@@ -24,17 +25,18 @@ def generate_individual_files(args):
     val_cat = args['val_cat']
     freq = args['freq']
     norm = args['norm']
+    data_path_apache = args['data_path_apache']
     save_path = args['save_path']
 
     if norm:
-        pharma = pd.read_csv(f'processed/data_per_patient_normalized/{pid}_pharma.csv')
-        physio = pd.read_csv(f'processed/data_per_patient_normalized/{pid}_physio.csv')
+        pharma = pd.read_csv(os.path.join(path_processed, f'data_per_patient_normalized/{data_path_apache}/{pid}_pharma.csv'))
+        physio = pd.read_csv(os.path.join(path_processed, f'data_per_patient_normalized/{data_path_apache}/{pid}_physio.csv'))
     else:
-        pharma = pd.read_csv(f'processed/data_per_patient/{pid}_pharma.csv')
-        physio = pd.read_csv(f'processed/data_per_patient/{pid}_physio.csv')
+        pharma = pd.read_csv(os.path.join(path_processed, f'data_per_patient/{data_path_apache}/{pid}_pharma.csv'))
+        physio = pd.read_csv(os.path.join(path_processed, f'data_per_patient/{data_path_apache}/{pid}_physio.csv'))
 
-    pharma['givenat'] = pd.to_datetime(pharma['givenat'])
-    physio['datetime'] = pd.to_datetime(physio['datetime'])
+    pharma['givenat'] = pd.to_datetime(pharma['givenat'], format='ISO8601')
+    physio['datetime'] = pd.to_datetime(physio['datetime'], format='ISO8601')
     pharma = pharma.sort_values('givenat')
     physio = physio.sort_values('datetime')
 
@@ -43,7 +45,7 @@ def generate_individual_files(args):
     idx_ts = pd.date_range(start=t_start, end=t_end, freq=freq)
 
     df = format_data(idx_ts, info, physio, pharma, val_cat, freq=freq, norm=norm)
-    df.to_csv(os.path.join(save_path, f'{pid}.csv'))
+    df.to_csv(os.path.join(save_path, data_path_apache, f'{pid}.csv'))
 
 
 
@@ -56,7 +58,7 @@ def generate_data_sample_per_pharma(args):
     freq = args['freq']
     # pharma_all = pharma_all[pharma_all['patientid']==pid]
 
-    df = pd.read_csv(f'processed/data_per_patient_resample2min_normalized/{pid}.csv', header=[0,1], index_col=0)
+    df = pd.read_csv(os.path.join(path_processed, f'data_per_patient_resample2min_normalized/{pid}.csv'), header=[0,1], index_col=0)
     df.index = pd.to_datetime(df.index)
     pharma = df.loc[:, df.columns.get_level_values(0)=='pharma']
     # ignore empty rows and columns
@@ -70,7 +72,7 @@ def generate_data_sample_per_pharma(args):
     pharma_all = pharma_all.loc[(~(pd.isnull(pharma_all))).any(1)]
 
     for pharmaid in pharma.columns.get_level_values(1).to_numpy().astype(int):
-        Path(f'processed/data_sample_per_pharma_1h/{pharmaid}').mkdir(parents=True, exist_ok=True)
+        Path(os.path.join(path_processed, f'data_sample_per_pharma_1h/{pharmaid}').mkdir(parents=True, exist_ok=True))
 
         this_pharma = pharma[pharma.columns[pharma.columns.get_level_values(1) == str(pharmaid)]]
         this_pharma = this_pharma[(this_pharma!=0).any(1)]
@@ -135,7 +137,7 @@ def generate_data_sample_per_pharma(args):
                                 continue
                     sample = df.loc[(df.index >= ts_begin) & (df.index <= ts_end)]
                     print(f'\tSaving valid data sample --- {pharmaid} / {pid}_{sampleid} - {sample.index[0]} - {ts_curr}')
-                    sample.to_csv(f'processed/data_sample_per_pharma_1h/{pharmaid}/{pid}_{sampleid}.csv')
+                    sample.to_csv(os.path.join(path_processed, f'data_sample_per_pharma_1h/{pharmaid}/{pid}_{sampleid}.csv'))
                     sampleid += 1
                     next_idx = this_pharma[this_pharma.index > pd.to_datetime(sample.index[-1])]
                     if next_idx.shape[0] == 0:
@@ -157,7 +159,7 @@ def generate_data_sample_per_pharma(args):
                             continue
                     sample = df.loc[(df.index >= ts_begin) & (df.index <= ts_end)]
                     print(f'\tSaving valid data sample --- {pharmaid} / {pid}_{sampleid} - {sample.index[0]} - {ts_curr}')
-                    sample.to_csv(f'processed/data_sample_per_pharma_1h/{pharmaid}/{pid}_{sampleid}.csv')
+                    sample.to_csv(os.path.join(path_processed, f'data_sample_per_pharma_1h/{pharmaid}/{pid}_{sampleid}.csv'))
                     sampleid += 1
                     next_idx = this_pharma[this_pharma.index > pd.to_datetime(sample.index[-1])]
                     if next_idx.shape[0] == 0:
@@ -169,12 +171,13 @@ def generate_data_sample_per_pharma(args):
 
 
 
+
+
 if __name__=='__main__':
 
     path_processed = '../processed-v2/'
-    selected_physio = pd.read_csv(os.path.join(path_processed, 'HiRID_selected_variables-output_processed.csv'))
-    # selected_pharma = pd.read_csv(os.path.join(path_processed, 'HiRID_selected_variables-input_dict_v2.csv'))
-    selected_pharma = pickle.load(open(os.path.join(path_processed, 'selected_pharma_final.p'), 'rb'))
+    selected_physio = pd.read_csv(os.path.join(path_processed, 'selected_physio.csv'))
+    selected_pharma = pickle.load(open(os.path.join(path_processed, 'selected_pharma.p'), 'rb'))
 
     pid_list = pickle.load(open(os.path.join(path_processed, 'pid_valid.p'), 'rb'))
     pid_group = pickle.load(open(os.path.join(path_processed, 'pid_group_valid.p'), 'rb'))
@@ -183,10 +186,10 @@ if __name__=='__main__':
     patient_data = pickle.load(open(os.path.join(path_processed, 'patient_data_valid_with_uid.p'), 'rb'))
 
     # normalization params
+    norm_param_physio = pd.read_csv(os.path.join(path_processed, 'robnorm_pararms_physio.csv'), index_col=[0])
+    norm_param_pharma = pd.read_csv(os.path.join(path_processed, 'robnorm_pararms_pharma.csv'), index_col=[0])
     perc_lower = 0.5
     perc_upper = 99.5
-    norm_param_physio = pd.read_csv('processed/robnorm_pararms_physio.csv', index_col=[0])
-    norm_param_pharma = pd.read_csv('processed/robnorm_pararms_pharma.csv', index_col=[0])
 
     COL_PHARMA = selected_pharma['variableid'].tolist()
     COL_PHYSIO_NUM = selected_physio.loc[selected_physio['type'] == 'n', 'uid'].unique().tolist()
@@ -220,13 +223,13 @@ if __name__=='__main__':
             patient_data_normed.loc[patient_data_normed['uid'] == uid, 'value'] = data_normed
         except:
             raise ValueError('check norm_params_physio!')
-    pickle.dump(patient_data_normed, open('processed/patient_data_valid_normalized.p', 'wb'))
+    pickle.dump(patient_data_normed, open(os.path.join(path_processed, 'patient_data_valid_normalized.p'), 'wb'))
 
     for vid in tqdm(COL_PHARMA):
         try:
             norm_param = norm_param_pharma.loc[vid]
-            pl = norm_param.loc[perc_lower]
-            pu = norm_param.loc[perc_upper]
+            pl = norm_param.loc[str(perc_lower)]
+            pu = norm_param.loc[str(perc_upper)]
             len_prev = pharma_data_normed.shape[0]
             pharma_data_normed = pharma_data_normed.loc[
                 ((pharma_data_normed['pharmaid']==vid) & (pharma_data_normed['givendose'] > pl) & (pharma_data_normed['givendose'] < pu))
@@ -239,15 +242,15 @@ if __name__=='__main__':
             pharma_data_normed.loc[pharma_data_normed['pharmaid'] == vid, 'givendose'] = data_normed
         except:
             pass
-    pickle.dump(pharma_data_normed, open('processed/pharma_data_valid_normalized.p', 'wb'))
+    pickle.dump(pharma_data_normed, open(os.path.join(path_processed, 'pharma_data_valid_normalized.p'), 'wb'))
 
-    patient_data_normalized = pickle.load(open('processed/patient_data_valid_normalized.p', 'rb'))
-    pharma_data_normalized = pickle.load(open('processed/pharma_data_valid_normalized.p', 'rb'))
+    patient_data_normed = pickle.load(open(os.path.join(path_processed, 'patient_data_valid_normalized.p'), 'rb'))
+    pharma_data_normed = pickle.load(open(os.path.join(path_processed, 'pharma_data_valid_normalized.p'), 'rb'))
 
-    check_pharma = pharma_data_normalized.groupby('pharmaid').agg(
+    check_pharma = pharma_data_normed.groupby('pharmaid').agg(
         {'givendose': ['median', 'mean', 'std', 'min', 'max']}
     )
-    check_physio = patient_data_normalized.groupby('uid').agg(
+    check_physio = patient_data_normed.groupby('uid').agg(
         {'value': ['median', 'mean', 'std', 'min', 'max']}
     )
 
@@ -257,7 +260,8 @@ if __name__=='__main__':
         Path(os.path.join(path_processed, f'data_per_patient/{apache_}')).mkdir(parents=True, exist_ok=True)
         Path(os.path.join(path_processed, f'data_per_patient_normalized/{apache_}')).mkdir(parents=True, exist_ok=True)
 
-    for apache in pid_group:
+    # for apache in pid_group:
+    for apache in list(pid_group.keys())[11:]:
         print(f'{apache}: ---')
         apache_ = apache.replace(" ", "")
         for pid in tqdm(pid_group[apache]):
@@ -265,36 +269,62 @@ if __name__=='__main__':
             physio = patient_data[patient_data['patientid']==pid].reset_index(drop=True)
             pharma.to_csv(os.path.join(path_processed, f'data_per_patient/{apache_}/{pid}_pharma.csv'))
             physio.to_csv(os.path.join(path_processed, f'data_per_patient/{apache_}/{pid}_physio.csv'))
-            physio_normed = patient_data_normalized[patient_data_normalized['patientid']==pid].reset_index(drop=True)
-            pharma_normed = pharma_data_normalized[pharma_data_normalized['patientid'] == pid].reset_index(drop=True)
+            physio_normed = patient_data_normed[patient_data_normed['patientid']==pid].reset_index(drop=True)
+            pharma_normed = pharma_data_normed[pharma_data_normed['patientid'] == pid].reset_index(drop=True)
             pharma_normed.to_csv(os.path.join(path_processed, f'data_per_patient_normalized/{apache_}/{pid}_pharma.csv'))
             physio_normed.to_csv(os.path.join(path_processed, f'data_per_patient_normalized/{apache_}/{pid}_physio.csv'))
 
 
-    # # Format raw data into shape TxD
-    # Path('processed/data_per_patient_resample2min').mkdir(parents=True, exist_ok=True)
-    # Path('processed/data_per_patient_resample2min_normalized').mkdir(parents=True, exist_ok=True)
-    #
-    # val_cat = {}
-    # for uid in COL_PHYSIO_CAT:
-    #     val_cat[uid] = sorted(patient_data[patient_data['uid'] == uid]['value'].astype(int).unique())
-    #
-    # with Pool(48) as pool:
-    #     for _ in tqdm(
-    #             pool.imap_unordered(
-    #                 generate_individual_files,
-    #                 [dict(
-    #                     pid=pid,
-    #                     info=patient_info[patient_info['patientid'] == pid],
-    #                     val_cat=val_cat,
-    #                     freq='2T',
-    #                     norm=True,
-    #                     save_path='processed/data_per_patient_resample2min_normalized',
-    #                 ) for pid in pid_list]
-    #             ), total=len(pid_list)
-    #     ):
-    #         pass
+    # Format raw data into shape TxD per patient
+    data_path_dict = {}
+    for apache in pid_group:
+        apache_ = apache.replace(" ", "")
+        Path(os.path.join(path_processed, f'data_per_patient_resample2min/{apache_}')).mkdir(parents=True, exist_ok=True)
+        Path(os.path.join(path_processed, f'data_per_patient_resample2min_normalized/{apache_}')).mkdir(parents=True, exist_ok=True)
+        for pid in pid_group[apache]:
+            data_path_dict[pid] = apache_
 
+    val_cat = {}
+    for uid in COL_PHYSIO_CAT:
+        val_cat[uid] = sorted(patient_data[patient_data['uid'] == uid]['value'].astype(int).unique())
+    pickle.dump(val_cat, open(os.path.join(path_processed, 'patient_data_categoric_values.p'), 'wb'))
+    # val_cat = pickle.load(open(os.path.join(path_processed, 'patient_data_categoric_values.p'), 'rb'))
+
+    # Generate raw data per patient
+    with Pool(48) as pool:
+        for _ in tqdm(
+                pool.imap_unordered(
+                    generate_individual_files,
+                    [dict(
+                        pid=pid,
+                        info=patient_info[patient_info['patientid'] == pid],
+                        val_cat=val_cat,
+                        freq='2T',
+                        norm=False,
+                        data_path_apache=f'{data_path_dict[pid]}',
+                        save_path=os.path.join(path_processed, 'data_per_patient_resample2min'),
+                    ) for pid in pid_list]
+                ), total=len(pid_list)
+        ):
+            pass
+
+    # Generate normalized data per patient
+    with Pool(48) as pool:
+        for _ in tqdm(
+                pool.imap_unordered(
+                    generate_individual_files,
+                    [dict(
+                        pid=pid,
+                        info=patient_info[patient_info['patientid'] == pid],
+                        val_cat=val_cat,
+                        freq='2T',
+                        norm=True,
+                        data_path_apache=f'{data_path_dict[pid]}',
+                        save_path=os.path.join(path_processed, 'data_per_patient_resample2min_normalized'),
+                    ) for pid in pid_list]
+                ), total=len(pid_list)
+        ):
+            pass
 
 
 

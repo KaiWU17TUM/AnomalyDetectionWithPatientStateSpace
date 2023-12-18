@@ -5,23 +5,12 @@ import pickle
 from sklearn.preprocessing import RobustScaler
 from scipy import stats
 
-path_processed = '../processed-v2/'
-selected_physio = pd.read_csv(os.path.join(path_processed, 'HiRID_selected_variables-output_processed.csv'))
-selected_pharma = pickle.load(open(os.path.join(path_processed, 'selected_pharma_final.p'), 'rb'))
+from utils.config_dataset import *
 
-# pid_list = pickle.load(open('processed/pid_valid.p', 'rb'))
-# pid_group = pickle.load(open('processed/pid_group_valid.p', 'rb'))
-# patient_info = pickle.load(open('processed/patient_info_valid.p', 'rb'))
-# pharma_data = pickle.load(open('processed/pharma_data_valid.p', 'rb'))
-# patient_data = pickle.load(open('processed/patient_data_valid_with_uid.p', 'rb'))
 
-COL_INFO_NUM = ['age', 'los']
-COL_INFO_CAT = ['sex', 'discharge_status', 'APACHE']
-COL_PHARMA = selected_pharma['variableid'].tolist()
-COL_PHYSIO_NUM = selected_physio.loc[selected_physio['type'] == 'n', 'uid'].unique().tolist()
-COL_PHYSIO_CAT = selected_physio.loc[selected_physio['type'] == 'c', 'uid'].unique().tolist()
-COL_PHYSIO_SETTING = selected_physio.loc[selected_physio['isSetting'] == 1, 'uid'].unique().tolist()
-COL_PHYSIO_FLUID = selected_physio.loc[selected_physio['category'] == 'Fluid-balance', 'uid'].unique().tolist()
+os.chdir('/home/kai/DigitalICU/Experiments/HIRID-PatientStateSpace/src')
+
+
 
 
 def percentile(n):
@@ -70,31 +59,31 @@ def format_numeric_data(idx_ts, data, cols_num, freq='2T', norm=False):
     df = pd.DataFrame(columns=cols_num, index=idx_ts)
 
     for col in set(COL_PHYSIO_NUM).difference(set(COL_PHYSIO_FLUID)):
-        d = data[data['uid']==col].set_index('datetime')
+        d = data[data['uid']==col].set_index('datetime')['value']
         if d.shape[0] == 0:
             continue
         d = d.resample(freq, origin=idx_ts[0]).mean()
         df_col = pd.DataFrame(index=d.index)
-        df_col[col] = d['value']
+        df_col[col] = d.values
         df.update(df_col)
 
     for col in COL_PHYSIO_FLUID:
-        d = data[data['uid'] == col].set_index('datetime')
+        d = data[data['uid'] == col].set_index('datetime')['value']
         if d.shape[0] == 0:
             continue
         # Urine [ml/h]
-        if col == 30:
+        if col == 43:
             d = d.resample(freq, origin=idx_ts[0]).mean()
         # drain [ml]
-        elif col == 31:
+        elif col == 44:
             d = d.resample(freq, origin=idx_ts[0]).sum()
         # fluid balance [ml]: cumulative
-        elif col == 32:
+        elif (col == 45) or (col == 46):
             d = d.resample(freq, origin=idx_ts[0]).last()
         else:
             raise ValueError(f'UID-{col} is not in patient fluid data')
         df_col = pd.DataFrame(index=d.index)
-        df_col[col] = d['value']
+        df_col[col] = d.values
         df.update(df_col)
 
     if norm:
@@ -121,11 +110,18 @@ def format_pharma_data(idx_ts, data, cols_pha, freq='2T'):
     df = pd.DataFrame(0, columns=cols_pha, index=idx_ts)
 
     for col in data['pharmaid'].unique():
-        d = data[(data['pharmaid'] == col) & (data['givendose']!=0)].set_index('givenat')
-        d = d.resample(freq, origin=idx_ts[0]).sum()
-        df_col = pd.DataFrame(index=d.index)
-        df_col[col] = d['givendose']
-        df.update(df_col)
+        try:
+            # if col == 1000974:
+            #     pass
+            d = data[(data['pharmaid'] == col) & (data['givendose']!=0)].set_index('givenat')['givendose']
+            if d.shape[0] == 0:
+                continue
+            d = d.resample(freq, origin=idx_ts[0]).sum()
+            df_col = pd.DataFrame(index=d.index)
+            df_col[col] = d.values
+            df.update(df_col)
+        except:
+            print(f'Patient {data["patientid"][0]} - Pharma {col}')
 
     return df
 
