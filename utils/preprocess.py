@@ -87,6 +87,9 @@ def format_numeric_data(idx_ts, data, cols_num, freq='2T', norm=False):
             # d['diff_t'] = d['datetime'].diff() / np.timedelta64(1,"m")
             d['rate'] = np.nan
             d['rate'][:-1] = d['value'].diff().values[1:] / (d['datetime'].diff() / np.timedelta64(1,"m")).values[1:]
+            d['rate'].iloc[np.where(d['value'].diff()<0)[0]-1] = 0
+            if d[d['rate']<0].shape[0] != 0:
+                print('fluid balace rate < 0!!!')
             del d['value']
             d = d.set_index('datetime')
             d = d.resample(freq, origin=idx_ts[0]).last()

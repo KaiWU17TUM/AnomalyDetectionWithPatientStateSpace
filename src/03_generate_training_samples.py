@@ -1,21 +1,14 @@
 import os
-import pickle
-import collections
 from pathlib import Path
 
 import warnings
 warnings.filterwarnings("ignore")
 
-import datetime
 from tqdm import tqdm
-import numpy as np
-import pandas as pd
 from multiprocessing import Pool
 
 import sys
 sys.path.append(os.path.abspath('.'))
-# print(sys.path)
-from utils.preprocess import format_data, robust_normalize
 from  utils.config_dataset import *
 
 os.chdir('/home/kai/DigitalICU/Experiments/HIRID-PatientStateSpace')
@@ -32,7 +25,7 @@ def save_data_sample(args):
     data.index = pd.to_datetime(data.index)
 
     df = pd.DataFrame(index=data.index)
-    df['pharma_impact'] = 0
+    df[('pharma_impact', 0)] = 0
 
     data_ = data[[('pharma_mask', str(col)) for col in INPUT_OF_INTEREST]]
     check_pharma_exist = data_.sum().sum()
@@ -55,7 +48,7 @@ def save_data_sample(args):
         return 0
 
     mask_med = data.loc[:, data.columns.get_level_values(0) == 'pharma_mask']
-    df.loc[mask_med.sum(axis=1) > 0, 'pharma_impact'] = 1
+    df.loc[mask_med.sum(axis=1) > 0, [('pharma_impact', 0)]] = 1
     # df = df.reset_index()
     # for idx, row in df[df['pharma_impact']>0].iterrows():
     #     if idx + 1 < len(df):
@@ -83,7 +76,8 @@ def save_data_sample(args):
             t_end = ts + np.timedelta64(3, 'h')
 
             sample = df.loc[t_start:t_end, :]
-            sample.to_csv(os.path.join(save_path, med, f'{pid}_{i}.csv'))
+            #sample.to_csv(os.path.join(save_path, med, f'{pid}_{i}.csv'))
+            pickle.dump(sample, open(os.path.join(save_path, med, f'{pid}_{i}.p'), 'wb'))
             i += 1
 
     return 1
@@ -95,33 +89,33 @@ if __name__ == '__main__':
     path_data_per_pat = os.path.join(path_root, 'data_per_patient_resample2min')
     save_path = os.path.join(path_root, 'training_samples')
 
-    # Path(save_path).mkdir(exist_ok=True, parents=True)
-    # for med in INPUT_OF_INTEREST:
-    #     subpath = os.path.join(save_path, str(med))
-    #     Path(subpath).mkdir(exist_ok=True, parents=True)
-    #
-    # for apache in APACHE_OF_INTEREST:
-    #     print(f'------------------------------------------------------------')
-    #     print(f'------------{apache}---------------')
-    #     print(f'------------------------------------------------------------')
-    #     files = os.listdir(os.path.join(path_data_per_pat, apache))
-    #
-    #     with Pool(48) as pool:
-    #         for _ in tqdm(
-    #                 pool.imap_unordered(
-    #                     save_data_sample,
-    #                     [
-    #                         dict(
-    #                         path_data_per_pat=path_data_per_pat,
-    #                         apache=apache,
-    #                         file=file,
-    #                         save_path=save_path,
-    #                         )
-    #                         for file in files
-    #                     ]
-    #                 ), total=len(files)
-    #         ):
-    #             pass
+    Path(save_path).mkdir(exist_ok=True, parents=True)
+    for med in INPUT_OF_INTEREST:
+        subpath = os.path.join(save_path, str(med))
+        Path(subpath).mkdir(exist_ok=True, parents=True)
+
+    for apache in APACHE_OF_INTEREST:
+        print(f'------------------------------------------------------------')
+        print(f'------------{apache}---------------')
+        print(f'------------------------------------------------------------')
+        files = os.listdir(os.path.join(path_data_per_pat, apache))
+
+        with Pool(48) as pool:
+            for _ in tqdm(
+                    pool.imap_unordered(
+                        save_data_sample,
+                        [
+                            dict(
+                            path_data_per_pat=path_data_per_pat,
+                            apache=apache,
+                            file=file,
+                            save_path=save_path,
+                            )
+                            for file in files
+                        ]
+                    ), total=len(files)
+            ):
+                pass
 
     pid_group = pickle.load(open(os.path.join(path_processed, 'pid_group_valid.p'), 'rb'))
     pid_apache_dict = {}

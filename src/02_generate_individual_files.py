@@ -187,7 +187,7 @@ def generate_data_sample_per_pharma(args):
 
 if __name__=='__main__':
 
-    path_processed = '../processed-v2/'
+    path_processed = 'processed-v2/'
     selected_physio = pd.read_csv(os.path.join(path_processed, 'selected_physio.csv'))
     selected_pharma = pickle.load(open(os.path.join(path_processed, 'selected_pharma.p'), 'rb'))
 
@@ -296,11 +296,11 @@ if __name__=='__main__':
         for pid in pid_group[apache]:
             data_path_dict[pid] = apache_
 
-    # val_cat = {}
-    # for uid in COL_PHYSIO_CAT:
-    #     val_cat[uid] = sorted(patient_data[patient_data['uid'] == uid]['value'].astype(int).unique())
-    # pickle.dump(val_cat, open(os.path.join(path_processed, 'patient_data_categoric_values.p'), 'wb'))
-    val_cat = pickle.load(open(os.path.join(path_processed, 'patient_data_categoric_values.p'), 'rb'))
+    val_cat = {}
+    for uid in COL_PHYSIO_CAT:
+        val_cat[uid] = sorted(patient_data[patient_data['uid'] == uid]['value'].astype(int).unique())
+    pickle.dump(val_cat, open(os.path.join(path_processed, 'patient_data_categoric_values.p'), 'wb'))
+    # val_cat = pickle.load(open(os.path.join(path_processed, 'patient_data_categoric_values.p'), 'rb'))
 
     # Generate raw data per patient
     with Pool(48) as pool:
