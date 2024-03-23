@@ -66,18 +66,23 @@ def save_data_sample(args):
     data_ = data[[('physio_num', str(col)) for col in OUTPUT_OF_INTEREST]]
     df = pd.concat((df, data_), axis=1)
 
+    ts_last = None
     for med in ts_med_valid.keys():
         tss = sorted(ts_med_valid[med])
         i = 1
         for j, ts in enumerate(tss):
-            if (j > 0) and (ts - tss[j - 1] == np.timedelta64(2, 'm')):
-                continue
+            if ts_last and int(med) in INPUT_OF_INTEREST_INFUSION:
+                if ts - ts_last <= np.timedelta64(6, 'h'):
+                    continue
+            # if (j > 0) and (ts - tss[j - 1] == np.timedelta64(2, 'm')):
+            #     continue
             t_start = ts - np.timedelta64(3, 'h')
             t_end = ts + np.timedelta64(3, 'h')
 
             sample = df.loc[t_start:t_end, :]
             #sample.to_csv(os.path.join(save_path, med, f'{pid}_{i}.csv'))
             pickle.dump(sample, open(os.path.join(save_path, med, f'{pid}_{i}.p'), 'wb'))
+            ts_last = ts
             i += 1
 
     return 1
@@ -87,7 +92,7 @@ if __name__ == '__main__':
 
     path_root = '/home/kai/DigitalICU/Experiments/HIRID-PatientStateSpace/processed-v2/'
     path_data_per_pat = os.path.join(path_root, 'data_per_patient_resample2min')
-    save_path = os.path.join(path_root, 'training_samples')
+    save_path = os.path.join(path_root, 'training_samples-v2')
 
     Path(save_path).mkdir(exist_ok=True, parents=True)
     for med in INPUT_OF_INTEREST:

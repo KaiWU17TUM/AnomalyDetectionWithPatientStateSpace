@@ -62,12 +62,12 @@ PHARMA_VALID = PHARMA_INFUSION + PHARMA_INJECTION
 INPUT_OF_INTEREST_BOLUS = [
     1000655,    # Adrenalin - bolus
     1000658,    # Noradrenalin - bolus
-    1000747,    # Lasix - bolus
+    1000747,    # Lasix - bolus: lower blood pressuuuure
 ]
 INPUT_OF_INTEREST_INFUSION = [
     1000649,  # Adrenalin - infusion
     1000657,  # Noradrenalin - infusion
-    426,  # Dobutrex - infusion?
+    426,  # Dobutrex - infusion: stimulate heart muscle
     # Sedation
     1000251,  # Fentanyl
     208,  # Disoprivan

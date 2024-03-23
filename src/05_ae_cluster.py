@@ -2,11 +2,8 @@ from pathlib import Path
 import time
 
 import torch
-from torch import nn
 from torch.utils.data import DataLoader
-import torch.nn.functional as F
-import torch.optim as optim
-import torchmetrics
+
 
 from sklearn.model_selection import train_test_split
 
@@ -17,17 +14,26 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from utils.config_dataset import *
 from utils.ClassDataset import CusDataset
-from utils.ClassAE import LSTM_AE
+from utils.ClassAE import LSTM_AE, GuidedLSTM_AE, Transformer_AE, LSTM_AE_ALLMED, GuidedLSTM_AE_ALLMED
 
 RANDOMSEED = 2024
 torch.manual_seed(RANDOMSEED)
 np.random.seed(RANDOMSEED)
 
 
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+
+
 
 
 if __name__ == '__main__':
-    archive = pickle.load(open(os.path.join(path_processed, 'training_data_injectiononly.p'), 'rb'))
+
+    model_type = 'GuidedLSTM-AE-ALLMED'
+
+
+
+    archive = pickle.load(open(os.path.join(path_processed, 'training_data_allmed.p'), 'rb'))
     samples = archive['samples_norm']
     sample_dict= archive['sample_dict']
     idx_train= archive['idx_train']
@@ -56,10 +62,10 @@ if __name__ == '__main__':
 
     device = 'cuda'
     seq_len = 181
-    n_feat = 12
-    n_emb = 128
+    n_feat = 10
+    n_emb = 512
     n_layer = 2
-    dropout = 0.0
+    dropout = 0.1
 
     config = {
         'device': device,
@@ -67,13 +73,28 @@ if __name__ == '__main__':
         "n_feat": n_feat,
         "n_emb": n_emb,
         'n_layer': n_layer,
-        "lr": 5e-3,
+        "lr": 1e-2,
         "dropout": dropout,
     }
 
-    model_type = 'LSTM-AE'
+    if model_type == 'LSTM-AE':
+        model = LSTM_AE(config).to(device)
+    elif model_type == 'GuidedLSTM-AE':
+        model = GuidedLSTM_AE(config).to(device)
+    elif model_type == 'Transformer-AE':
+        config['n_head'] = 1
+        config['dmodel'] = 128
+        model = Transformer_AE(config).to(device)
+    elif model_type == 'LSTM-AE-ALLMED':
+        model = LSTM_AE_ALLMED(config).to(device)
+    elif model_type == 'GuidedLSTM-AE-ALLMED':
+        model = GuidedLSTM_AE_ALLMED(config).to(device)
+    else:
+        print(f'{model_type} is not supported!')
+
     model_name = f"{n_layer}layer-{n_emb}hidden-{dropout}dropout"
-    model_save_path = f'models/{model_name}'
+    print(model_type, model_name)
+    model_save_path = f'models/{model_type}/{model_name}'
     Path(model_save_path).mkdir(parents=True, exist_ok=True)
     model_version = os.listdir(model_save_path)
 
@@ -99,8 +120,6 @@ if __name__ == '__main__':
         )
     ]
 
-    model = LSTM_AE(config).to(device)
-
     logger = TensorBoardLogger(
         f'{model_save_path}',
         name=model_name,
@@ -114,6 +133,7 @@ if __name__ == '__main__':
         # resume_from_checkpoint=os.path.join(checkpoint_dir, "checkpoint"),
     )
     train_time_start = time.time()
+    pickle.dump(config, open(f'{model_save_path}/version_{version}/model_config.p', 'wb'))
     trainer.fit(model, train_dataloaders=loader_train, val_dataloaders=loader_val)
     train_time_total = time.time() - train_time_start
 
