@@ -32,6 +32,8 @@ class BasePRED(LightningModule):
         self.config = config
         self.seq_len = config['seq_len']
         self.n_feat = config['n_feat']
+        if 'n_feat_med' in config:
+            self.n_feat_med = config['n_feat_med']
         self.n_emb = config['n_emb']
         self.n_layer = config['n_layer']
         self.dropout = config['dropout']
@@ -800,6 +802,101 @@ class PRETRAINED_PRED_ALLMED(BasePRED):
 
 
 
+class GuidedLSTM_PRED_BENCHMARK(BasePRED):
+    def __init__(self, config):
+        super().__init__(config)
 
+        self.lstm = nn.LSTM(
+            input_size=self.n_feat,
+            hidden_size=self.n_emb,
+            num_layers=self.n_layer,
+            dropout=self.dropout,
+            batch_first=True
+        )
+        self.att = nn.MultiheadAttention(embed_dim=self.n_feat_med, kdim=self.n_feat, vdim=self.n_feat,
+                                         num_heads=1, dropout=self.dropout, batch_first=True)
+        self.fc_lstm = nn.Linear(in_features=self.n_emb, out_features=self.n_feat)
+        self.fc_att = nn.Linear(in_features=self.pred_len * self.n_feat_med, out_features=self.pred_len * self.n_feat)
+        self.fc_out = nn.Linear(in_features=2 * self.n_feat * self.pred_len, out_features=self.n_feat * self.pred_len)
+
+    def forward(self, x):
+        x_num = x['num'].float()
+        x_med = x['med'].float()
+        x_num = x_num[:, :self.input_len-1, :]
+        x_med = x_med[:, :self.input_len-1, :]
+        batchsize = x_num.shape[0]
+
+
+        # set h0 c0 to zero???
+        out, _ = self.lstm(x_num)
+        # ADD AN ACTIVATION LAYER???
+        preds = self.fc_lstm(out[:, -1, :])
+        preds = preds[:, None, :]
+        # print(f"preds: {preds.shape}")
+
+        for i in range(1, self.pred_len):
+            xin = torch.cat((x_num[:, i:, :], preds), dim=1)
+            # print(f"LSTM input: {xin.shape}")
+            out, _ = self.lstm(xin)
+            pred = self.fc_lstm(out[:, -1, :])
+            pred = pred[:, None, :]
+            preds = torch.concat((preds, pred), dim=1)
+            # print(f"preds: {preds.shape}")
+        # print(self.att.k_proj_weight.shape, self.att.q_proj_weight.shape)
+        # print(f'Dosage: {x_med.shape}, vitals: {x_num.shape}')
+
+        attn_output, _ = self.att(x_med, x_num, x_num, need_weights=False)
+        # print(f'ATTN output shape: {attn_output.shape}')
+        # print(f'ATTN output: {attn_output}')
+
+        attn_output = self.fc_att(attn_output.reshape(batchsize, -1))
+        # print(f'FC_OUT: att - {attn_output.shape}, lstm- {preds.shape}')
+        fc_in = torch.concat((attn_output, preds.reshape(batchsize, -1)), dim=1)
+        # print(f'FC_OUT: fc_in - {fc_in.shape}')
+        output = self.fc_out(fc_in)
+        # print(f'FC_OUT: fc_out - {output.shape}')
+        output = output.reshape(batchsize, self.pred_len, self.n_feat)
+        # print(f'FC_OUT: fc_out_reshaped - {output.shape}')
+
+        return output
+
+    def training_step(self, batch, batch_idx):
+        x = batch['data']
+        x_ = self.forward(x)
+        # print(f"loss x: {x[:, 91:, :].shape}, x_: {x_.shape}")
+        loss = mae_loss(x_, x['num'][:, self.pred_len:, :])
+
+        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        for metric in self.METRICS:
+            self.log("train_" + metric, self.METRICS[metric](x_, x['num'][:, self.pred_len:, :]), on_step=False, on_epoch=True, prog_bar=True,
+                     logger=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x = batch['data']
+        x_ = self.forward(x)
+        # print(f"loss x: {x[:, 91:, :].shape}, x_: {x_.shape}")
+        loss = mae_loss(x_, x['num'][:, self.pred_len:, :])
+
+        outputs = {'val_loss': loss}
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        for metric in self.METRICS:
+            outputs["val_" + metric] = self.METRICS[metric](x_, x['num'][:, self.pred_len:, :])
+            self.log("val_" + metric, outputs["val_" + metric], on_step=False, on_epoch=True, prog_bar=True,
+                     logger=True)
+        return outputs
+
+    def test_step(self, batch, batch_idx):
+        x = batch['data']
+        x_ = self.forward(x)
+        loss = mae_loss(x_, x['num'][:, self.pred_len:, :])
+
+        outputs = {'test_loss': loss}
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        for metric in self.METRICS:
+            outputs["test_" + metric] = self.METRICS[metric](x_, x['num'][:, self.pred_len:, :])
+            self.log("test_" + metric, outputs["test_" + metric], on_step=False, on_epoch=True, prog_bar=True,
+                     logger=True)
+        return outputs
 
 

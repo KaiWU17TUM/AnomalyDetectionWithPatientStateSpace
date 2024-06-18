@@ -95,3 +95,217 @@ APACHE_OF_INTEREST = [
     'Cardiovascular',
     'Pulmonary',
 ]
+
+MEDICAL_RANGES = {
+    'normal': {
+        1: [90, 100],  # SpO2
+        2: [12, 16],  # respiration
+        18: [50, 100],  # heart rate
+        24: [95, 145],  # Invasive systolic arterial pressure
+        25: [60, 90],  # Invasive diastolic arterial pressure
+        26: [70, 100],  # Invasive mean arterial pressure
+        34: [3, 8],  # Central venous pressure
+        43: [None, None],  # urine
+        45: [None, None],  # fluid intake
+        46: [25, 30],  # fluid ouput
+    },
+    'limit': {
+        1: [40, 100],  # SpO2
+        2: [0, 60],  # respiration
+        18: [30, 400],  # heart rate
+        24: [40, 300],  # Invasive systolic arterial pressure
+        25: [20, 150],  # Invasive diastolic arterial pressure
+        26: [30, 200],  # Invasive mean arterial pressure
+        34: [0, 20],  # Central venous pressure
+        43: [None, None],  # urine
+        45: [None, None],  # fluid intake
+        46: [0, 70],  # fluid ouput
+    }
+}
+
+INFO_BENCHMARK = [
+    'patientid',
+    'datetime',
+    'admissiontime',
+    'age',
+    'sex',
+    'height',
+]
+
+MED_BENCHMARK = [
+    'norepinephrine',
+    'epinephrine',
+    'dobutamine',
+    'Loop diuretics',
+    'Benzodiacepine',
+    'Propofol',
+    'Opiate',
+]
+
+PHYSIO_BENCHMARK = [
+    'HR',
+    'RR',
+    'SpO2',
+    'ABPd',
+    'ABPm',
+    'ABPs',
+    'ZVD',
+    'IN',
+    'OUT',
+    'OUTurine/h',
+]
+
+PHYSIO_BENCHMARK_ALL = [
+    'HR',
+    'T Central',
+    'ABPs',
+    'ABPd',
+    'ABPm',
+    'NIBPs',
+    'NIBPd',
+    'NIBPm',
+    'PAPm',
+    'PAPs',
+    'PAPd',
+    'PCWP',
+    'CO',
+    'SvO2(m)',
+    'ZVD',
+    'ST1',
+    'ST2',
+    'ST3',
+    'Rhythmus',
+    'SpO2',
+    'ETCO2',
+    'RR',
+    'supplemental oxygen',
+    'OUTurine/h',
+    'GCS Antwort',
+    'GCS Motorik',
+    'GCS Augen�ffnen',
+    'RASS',
+    'ICP',
+    'TOF',
+    'IN',
+    'OUT',
+    'Incrys',
+    'Incolloid',
+    'FIO2',
+    'Peep',
+    'Ventilator mode',
+    'TV',
+    'Spitzendruck',
+    'Plateaudruck',
+    'AWPmean',
+    'RR set',
+    'AiwayCode',
+    'Haemofiltration',
+    'Liquor/h',
+    'Weight',
+    'a-BE',
+    'a_COHb',
+    'a_Hb',
+    'a_HCO3-',
+    'a_Lac',
+    'a_MetHb',
+    'a_pH',
+    'a_pCO2',
+    'a_PO2',
+    'a_SO2',
+    'Zentral venöse sättigung',
+    'Troponin-T',
+    'creatine kinase',
+    'creatine kinase-MB',
+    'v-Lac',
+    'BNP',
+    'K+',
+    'Na+',
+    'Cl-',
+    'Ca2+ ionizied',
+    'Ca2+ total',
+    'phosphate',
+    'Mg_lab',
+    'Urea',
+    'creatinine',
+    'urinary creatinin',
+    'urinary Na+',
+    'urinary urea',
+    'ASAT',
+    'ALAT',
+    'bilirubine, total',
+    'Bilirubin, direct',
+    'alkaline phosphatase',
+    'gamma-GT',
+    'aPTT',
+    'Fibrinogen',
+    'FII',
+    'Factor V',
+    'Factor VII',
+    'factor X',
+    'INR',
+    'albumin',
+    'glucose',
+    'Ammoniak',
+    'C-reactive protein',
+    'procalcitonin',
+    'lymphocyte',
+    'Neutr',
+    'Segm. Neut.',
+    'Stabk. Neut.',
+    'BSR',
+    'Hb',
+    'total white blood cell count',
+    'platelet count',
+    'MCH',
+    'MCHC',
+    'MCV',
+    'Ferritin',
+    'TSH',
+    'AMYL-S',
+    'Lipase',
+    'Cortisol',
+    'pH Liquor',
+    'Laktat Liquor',
+    'Glucose Liquor',
+    'pH Drain',
+    'AMYL-Drainag',
+]
+
+PHYSIO_BENCHMARK_CAT = [
+    'Rhythmus',
+    'Ventilator mode',
+    'AiwayCode',
+]
+
+NUM_CAT_PHYSIO_BENCHMARK = {
+    'Rhythmus': 16,
+    'Ventilator mode': 15,
+    'AiwayCode': 6,
+}
+
+
+
+APACHE_BENCHMARK_MERGE = {
+    'Cardiovascular':           [98, 190],
+    'Respiratory':              [99, 191],
+    'Gastrointestinal':         [100, 192],
+    'Neurologic':               [101, 193],
+    'Trauma':                   [103, 194],
+    'Metabolic/Endocrinology':  [104, 195],
+    'Hematologic':              [105, 196],
+    'Other medical diseases':   [102, 106, 197, 198, 206],
+
+    'Cardiovascular surgical':  [107, 199],
+    'Respiratory surgical':     [108, 201],
+    'Gastrointestinal surgical':[109, 200],
+    'Neurologic surgical':      [110, 202],
+    'Trauma surgical':          [111, 203],
+    'Renal surgical':           [112, 204],
+    'Other surgical':           [113, 114, 205]
+}
+
+APACHE_BENCHMARK_MERGE_INDEX = {
+    k: i for i, k in enumerate(APACHE_BENCHMARK_MERGE)
+}
+
+SAMPLE_LEN_AE = 6 * 60   # minutes

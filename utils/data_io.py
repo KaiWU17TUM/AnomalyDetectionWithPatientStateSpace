@@ -114,3 +114,6 @@ class HIRIDDataset(Dataset):
         #         ts_pharma = sample_pharma.index.get_level_values(2)[mask_pharma].to_numpy()
         return mask_pharma
 
+
+class BENCHMARKDataset(Dataset):
+
