@@ -27,10 +27,16 @@ def read_reference_table(varref_path):
 
 
 
-path_processed = 'processed-v2/'
-selected_physio = pd.read_csv(os.path.join(path_processed, 'selected_physio.csv'))
-selected_pharma = pickle.load(open(os.path.join(path_processed, 'selected_pharma.p'), 'rb'))
-varref, pharmaref = read_reference_table(os.path.join(path_processed, 'varref.tsv'))    # from HIRID GitHub repo
+# original data from HIRID
+data_raw_path = 'physionet.org/files/hirid/1.1.1/raw_stage/observation_tables/parquet'
+pharma_raw_path = 'physionet.org/files/hirid/1.1.1/raw_stage/pharma_records/parquet'
+# data_merged_path = 'physionet.org/files/hirid/1.1.1/merged_stage/merged_stage_parquet'
+
+
+# path_processed = 'processed-v2/'
+# selected_physio = pd.read_csv(os.path.join(path_processed, 'selected_physio.csv'))
+# selected_pharma = pickle.load(open(os.path.join(path_processed, 'selected_pharma.p'), 'rb'))
+varref, pharmaref = read_reference_table(os.path.join('processed-v2/', 'varref.tsv'))    # from HIRID GitHub repo
 
 # pid_list = pickle.load(open('processed/pid_valid.p', 'rb'))
 # pid_group = pickle.load(open('processed/pid_group_valid.p', 'rb'))
@@ -38,13 +44,13 @@ varref, pharmaref = read_reference_table(os.path.join(path_processed, 'varref.ts
 # pharma_data = pickle.load(open('processed/pharma_data_valid.p', 'rb'))
 # patient_data = pickle.load(open('processed/patient_data_valid_with_uid.p', 'rb'))
 
-COL_INFO_NUM = ['age', 'los']
-COL_INFO_CAT = ['sex', 'discharge_status', 'APACHE']
-COL_PHARMA = list(set(selected_pharma['variableid'].tolist()))
-COL_PHYSIO_NUM = selected_physio.loc[selected_physio['type'] == 'n', 'uid'].unique().tolist()
-COL_PHYSIO_CAT = selected_physio.loc[selected_physio['type'] == 'c', 'uid'].unique().tolist()
-COL_PHYSIO_SETTING = selected_physio.loc[selected_physio['isSetting'] == 1, 'uid'].unique().tolist()
-COL_PHYSIO_FLUID = selected_physio.loc[selected_physio['category'] == 'Fluid-balance', 'uid'].unique().tolist()
+# COL_INFO_NUM = ['age', 'los']
+# COL_INFO_CAT = ['sex', 'discharge_status', 'APACHE']
+# COL_PHARMA = list(set(selected_pharma['variableid'].tolist()))
+# COL_PHYSIO_NUM = selected_physio.loc[selected_physio['type'] == 'n', 'uid'].unique().tolist()
+# COL_PHYSIO_CAT = selected_physio.loc[selected_physio['type'] == 'c', 'uid'].unique().tolist()
+# COL_PHYSIO_SETTING = selected_physio.loc[selected_physio['isSetting'] == 1, 'uid'].unique().tolist()
+# COL_PHYSIO_FLUID = selected_physio.loc[selected_physio['category'] == 'Fluid-balance', 'uid'].unique().tolist()
 
 PHARMA_INFUSION_START = 524
 PHARMA_INFUSION_END = 776
@@ -54,7 +60,7 @@ PHARMA_INJECTION = [
     544,    # tablet --- givendose=0
     780,    # injection --- with givendose
 ]
-PHARMA_INVALID = [[522, 526, 546, 782]]
+PHARMA_INVALID = [522, 526, 546, 782]
 PHARMA_VALID = PHARMA_INFUSION + PHARMA_INJECTION
 
 
@@ -141,6 +147,25 @@ MED_BENCHMARK = [
     'Propofol',
     'Opiate',
 ]
+MED_BENCHMARK_DICT_VID = {
+    39: [1000462, 1000656, 1000657, 1000658],
+    # norepinephrine
+    40: [71, 1000649, 1000650, 1000655, 1000750],
+    # epinephrine
+    41: [426],
+    # dobutamine
+    69: [4, 482, 1000232, 1000520, 1000521, 1000522, 1000747, 1000986],
+    # Loop diuretics
+    77: [245, 246, 251, 252, 442, 1000239, 1000418, 1000700, 1000902, 1000976, 1000977, 1000978, 1000988, 1000991,
+         1001051, 1001054, 1001215],
+    # Benzodiacepine
+    80: [208, 1000491, 1000691, 1000699, 1001050, 1001052, 1001053],
+    # Propofol
+    86: [204, 214, 215, 1000251, 1000350, 1000351, 1000382, 1000427, 1000444, 1000445, 1000446, 1000523, 1000627,
+         1000659, 1000692, 1000705, 1000768, 1000771, 1000794, 1000862, 1000932, 1000933, 1000935, 1000936, 1000937,
+         1000984, 1000985, 1000989, 1000990, 1001046],
+    # Opiate
+}
 
 PHYSIO_BENCHMARK = [
     'HR',

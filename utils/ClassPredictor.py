@@ -379,6 +379,7 @@ class LSTM_PRED_ALLMED(BasePRED):
                      logger=True)
         return outputs
 
+
 class GuidedLSTM_PRED_ALLMED(BasePRED):
     def __init__(self, config):
         super().__init__(config)
@@ -495,7 +496,6 @@ class GuidedLSTM_PRED_ALLMED(BasePRED):
             self.log("test_" + metric, outputs["test_" + metric], on_step=False, on_epoch=True, prog_bar=True,
                      logger=True)
         return outputs
-
 
 
 class GuidedLSTM_V2_PRED_ALLMED(BasePRED):
@@ -629,7 +629,6 @@ class GuidedLSTM_V2_PRED_ALLMED(BasePRED):
             self.log("test_" + metric, outputs["test_" + metric], on_step=False, on_epoch=True, prog_bar=True,
                      logger=True)
         return outputs
-
 
 
 class PRETRAINED_PRED_ALLMED(BasePRED):
@@ -799,7 +798,6 @@ class PRETRAINED_PRED_ALLMED(BasePRED):
         adam = optim.Adam(self.parameters(), lr=self.lr_pred)
         lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(adam, mode='min', factor=.5, patience=5)
         return [adam], {"scheduler": lr_scheduler, "monitor": "train_loss"}
-
 
 
 class GuidedLSTM_PRED_BENCHMARK(BasePRED):

@@ -1,0 +1,425 @@
+import os
+import pickle
+from pathlib import Path
+from datetime import timedelta
+from multiprocessing import Pool
+
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from tqdm.dask import TqdmCallback
+import dask.dataframe as dd
+
+os.chdir('/home/kai/DigitalICU/Experiments/HIRID-PatientStateSpace/')
+from utils.config_dataset import *
+from utils.preprocess_benchmark import drop_duplicates_pharma
+
+import warnings
+warnings.filterwarnings("ignore")
+
+
+def process_resp_endpoint(x):
+    if x:
+        if x == 'UNKNOWN':
+            x = np.nan
+        else:
+            x = int(x.split('_')[1])
+    else:
+        x = np.nan
+    return x
+
+def process_and_save_pharma_data_per_patient(args):
+    pid = args['pid']
+    pharma_pat = args['pharma_pat']
+    pharmaref = args['pharmaref']
+    save_path = args['save_path']
+
+    idx_ts = pd.date_range(start=pharma_pat['givenat'].iloc[0], end=pharma_pat['givenat'].iloc[-1], freq='2T')
+    df_formated = pd.DataFrame(0, columns=pharma_pat['pharmaid'].unique(), index=idx_ts)
+    df_merged = pd.DataFrame(0, columns=MED_BENCHMARK, index=idx_ts)
+
+    # calculate drug rate for injections
+    df_inj = pharma_pat[pharma_pat['recordstatus'].isin(PHARMA_INJECTION)]
+    # check for duplicated id for injection
+    for iid in df_inj['infusionid'].unique():
+        if df_inj[df_inj['infusionid']==iid].shape[0] != 1:
+            for i, idx in enumerate(df_inj[df_inj['infusionid']==iid].index):
+                try:
+                    df_inj.loc[idx, 'infusionid'] = f"{iid}_000{i}"
+                except:
+                    print(pid, iid)
+                    continue
+    assert df_inj[df_inj['givendose']<=0].shape[0] == 0     # check for unclear dose
+    df_inj.sort_values('givenat', inplace=True)
+    # df_inj = df_inj.resample('2T', origin=df_inj.index[0])
+    for iid in df_inj['infusionid'].unique():
+        try:
+            pharmaid = df_inj.loc[df_inj['infusionid']==iid, 'pharmaid'].item()
+        except:
+            print(pid, iid)
+            continue
+        dose = df_inj.loc[df_inj['infusionid']==iid, 'givendose'].item()
+        acting_time = pharmaref.loc[pharmaref['pharmaid']==pharmaid, 'pharmaactingperiod_min'].item()
+        convert_ratio = pharmaref.loc[pharmaref['pharmaid']==pharmaid, 'unitconversionfactor'].item()
+        convert_ratio = 1 if np.isnan(convert_ratio) else convert_ratio
+        rate = dose / acting_time * convert_ratio
+        t_start = df_inj.loc[df_inj['infusionid']==iid, 'givenat'].item()
+        t_end = t_start + timedelta(minutes=acting_time)
+        df_formated.loc[(df_formated.index >= t_start) & (df_formated.index < t_end), pharmaid] += rate
+
+    # calculate drug rate for infusions
+    df_inf = pharma_pat[pharma_pat['recordstatus'].isin(PHARMA_INFUSION)]
+    assert df_inf.loc[(df_inf['recordstatus'] == PHARMA_INFUSION_END) & (df_inf['cumulativedose'] == 0)].shape[0] == 0
+    for iid in df_inf['infusionid'].unique():
+        pharmaid = df_inf.loc[df_inf['infusionid'] == iid, 'pharmaid'].iloc[0]
+        convert_ratio = pharmaref.loc[pharmaref['pharmaid'] == pharmaid, 'unitconversionfactor'].item()
+        convert_ratio = 1 if np.isnan(convert_ratio) else convert_ratio
+
+        df_inf_single = df_inf[df_inf['infusionid']==iid].copy()
+        df_inf_single['rate'] = 0
+        df_inf_single['rate'][:-1] = df_inf_single['givendose'].values[1:] \
+                                     / (df_inf_single['givenat'].diff() / np.timedelta64(1, "m")).values[1:] * convert_ratio
+
+        df_inf_single = df_inf_single.set_index('givenat').resample('2T', origin=df_formated.index[0]).mean()
+        df_inf_single['rate'].fillna(method='ffill', inplace=True)
+        df_formated.loc[df_inf_single.index, pharmaid] += df_inf_single['rate'].values
+
+    if pd.isnull(df_formated).sum().sum() > 0:
+        print('df_formated contains NAN: PID - ', pid)
+    for med in df_merged.columns:
+        metaid = pharmaref.loc[pharmaref['metavariablename']==med, 'metavariableid'].iloc[0]
+        vids = MED_BENCHMARK_DICT_VID[metaid]
+        cols = [col for col in df_formated.columns if col in vids]
+        if len(cols) == 0:
+            continue
+        df_merged.loc[df_merged.index, med] = df_formated[cols].sum(axis=1)
+
+    pickle.dump(df_merged, open(os.path.join(save_path, f"{pid}.p"), 'wb'))
+
+
+def merge_and_save_data_per_pat(args):
+    save_path = args['save_path']
+    save_path_pharma_per_pat = args['save_path_pharma_per_pat']
+    pid = args['pid']
+    try:
+        df_pharma = pickle.load(open(os.path.join(save_path_pharma_per_pat, f'{pid}.p'), 'rb'))
+    except:
+        df_pharma = pd.DataFrame(columns=MED_BENCHMARK)
+    df_data = args['df_data']
+    df_endpoint = args['df_endpoint']
+    metaids_physio =args['metaids_physio']
+
+    try:
+        df_data = df_data[['datetime'] + [item[1] for item in metaids_physio.items()]]
+        df_data.columns = ['datetime'] + [item[0] for item in metaids_physio.items()]
+        df_data.set_index('datetime', inplace=True)
+        df_data = df_data.resample('2T', origin=df_data.index[0]).mean()
+        if df_pharma.shape[0] > 0:
+            df_pharma = df_pharma.resample('2T', origin=df_data.index[0]).mean()
+        if df_endpoint.shape[0] > 0:
+            df_endpoint['resp_failure_status'] = df_endpoint['resp_failure_status'].apply(process_resp_endpoint)
+            df_endpoint = df_endpoint[['datetime', 'resp_failure_status', 'circ_failure_status']].set_index('datetime')
+            df_endpoint = df_endpoint.resample('2T', origin=df_data.index[0]).last()
+            df_endpoint.fillna(method='ffill', inplace=True)
+        df_all = df_data.join(df_pharma, how='outer')
+        df_all = df_all.join(df_endpoint, how='outer')
+        # remaining LOS
+        los = (df_all.index[-1] - df_all.index).values / np.timedelta64(1, 'h') / 24
+        df_all['LOS'] = los
+
+        pickle.dump(df_all, open(os.path.join(save_path, f'{pid}.p'), 'wb'))
+
+    except:
+        with open('processed-merge/merge_data_failed.txt', 'a+') as f:
+            f.write(f'{pid},')
+        print(f"Failed to generate merged data for patient: {pid}")
+
+
+
+if __name__ == '__main__':
+    general_ext = pd.read_parquet('hirid_benchmark/general_table_extended.parquet')
+
+    save_path = 'processed-merge/'
+    Path(save_path).mkdir(parents=True, exist_ok=True)
+    # ############################################################
+    # # VALID PATIENT IDS
+    # ############################################################
+    # print('Filtering patients with valid information...')
+    # general_ext = pd.read_parquet('hirid_benchmark/general_table_extended.parquet')
+    # pid_valid = general_ext['patientid'].unique()
+    # print(f"Number of unique patient IDs: {len(pid_valid)}")
+    # 
+    # # remove patient with no discharge location
+    # pid_nodist = general_ext.loc[pd.isnull(general_ext['discharge_status']), 'patientid'].tolist()
+    # pid_valid = [pid for pid in pid_valid if pid not in pid_nodist]
+    # print(f"Remove patient with no discharge status... --- {len(pid_valid)}")
+    # 
+    # # remove patient with no APACHE group
+    # pid_noapache = general_ext.loc[(pd.isnull(general_ext['APACHE II Group'])) & (pd.isnull(general_ext['APACHE IV Group'])), 'patientid'].tolist()
+    # pid_valid = [pid for pid in pid_valid if pid not in pid_noapache]
+    # print(f"Remove patient with no APACHE group... --- {len(pid_valid)}")
+    # 
+    # # merge APACHE II and APACHE IV, remove patient with multiple
+    # APACHE_DICT = {
+    #     v: k for k in APACHE_BENCHMARK_MERGE for v in APACHE_BENCHMARK_MERGE[k]
+    # }
+    # 
+    # pid_multiapache = []
+    # apache_dict_merged = {}
+    # for pid in pid_valid:
+    #     apache2 = general_ext.loc[general_ext['patientid'] == pid, 'APACHE II Group'].item()
+    #     apache4 = general_ext.loc[general_ext['patientid'] == pid, 'APACHE IV Group'].item()
+    #     if ~np.isnan(apache2):
+    #         apache_merge = APACHE_DICT[int(apache2)]
+    #         apache_dict_merged[pid] = [apache_merge]
+    #     if ~np.isnan(apache4):
+    #         apache_merge = APACHE_DICT[int(apache4)]
+    #         if pid in apache_dict_merged:
+    #             if apache_merge in apache_dict_merged[pid]:
+    #                 continue
+    #             else:
+    #                 apache_dict_merged[pid] += [apache_merge]
+    #                 pid_multiapache += [pid]
+    #         else:
+    #             apache_dict_merged[pid] = [apache_merge]
+    # 
+    # pid_valid = [pid for pid in pid_valid if pid not in pid_multiapache]
+    # print(f"Remove patient with multiple APACHE groups... --- {len(pid_valid)}")
+    # pickle.dump(pid_valid, open(os.path.join(save_path, 'pid_valid.p'), 'wb'))
+    pid_valid = pickle.load(open(os.path.join(save_path, 'pid_valid.p'), 'rb'))
+
+
+    ############################################################
+    # Process raw pharma data
+    ############################################################
+    print('Process raw pharma data...')
+    # remove invalid entries
+    print('\tRemove patients with invalid entries...')
+    vid_selected = [vid for k in MED_BENCHMARK_DICT_VID for vid in MED_BENCHMARK_DICT_VID[k]]
+    # pharma_data = pd.read_parquet(pharma_raw_path)
+    # pharma_data = pharma_data[(pharma_data['patientid'].isin(pid_valid))
+    #                           & (pharma_data['pharmaid'].isin(vid_selected))
+    #                           & (pharma_data['recordstatus'].isin(PHARMA_VALID))].reset_index(drop=True)
+    # pid_0inj = pharma_data.loc[pharma_data['recordstatus']==544, 'patientid'].unique().tolist()
+    # pid_valid = [pid for pid in pid_valid if pid not in pid_0inj]
+    # pharma_data = pharma_data[pharma_data['patientid'].isin(pid_valid)]
+    # remove infusion with 0 cumulative dose
+    print('\tRemove 0 dose infusion...')
+    # iid_0inf = pharma_data.loc[(pharma_data['recordstatus']==PHARMA_INFUSION_END) & (pharma_data['cumulativedose']==0), 'infusionid']
+    # pharma_data = pharma_data[~pharma_data['infusionid'].isin(iid_0inf)]
+    # remove infusion with no start or end status
+    print('\tRemove patients with incomplete infusion...')
+    # inf_no_start, inf_no_end = [], []
+    # for iid in tqdm(pharma_data.loc[pharma_data['recordstatus'].isin(PHARMA_INFUSION), 'infusionid'].unique()):
+    #     if PHARMA_INFUSION_START not in pharma_data.loc[pharma_data['infusionid'] == iid, 'recordstatus'].tolist():
+    #         inf_no_start += [iid]
+    #     if PHARMA_INFUSION_END not in pharma_data.loc[pharma_data['infusionid'] == iid, 'recordstatus'].tolist():
+    #         inf_no_end += [iid]
+    # pid_inf_not_complete = pharma_data.loc[pharma_data['infusionid'].isin(inf_no_start+inf_no_end), 'patientid'].unique().tolist()
+    # print('#patients with incomplete infusion record: ', len(pid_inf_not_complete))
+    # pid_valid = list(set(pid_valid).difference(set(pid_inf_not_complete)))
+    # pickle.dump(pid_valid, open(os.path.join(save_path, 'pid_valid_00.p'), 'wb'))
+    pid_valid = pickle.load(open(os.path.join(save_path, 'pid_valid_00.p'), 'rb'))
+    # remove duplicates
+    print('\tRemove duplicated entries...')
+    # pharma_data = drop_duplicates_pharma(pharma_data)
+    # pickle.dump(pharma_data, open(os.path.join(save_path, 'pharma_data_00.p'), 'wb'))
+    pharma_data = pickle.load(open(os.path.join(save_path, 'pharma_data_00.p'), 'rb'))
+
+
+    ############################################################
+    # Generate pharma data per patient
+    ############################################################
+    print('Process grouped pharma data per patient...')
+    save_path_pharma_per_pat = os.path.join(save_path, 'pharma_per_pat')
+    Path(save_path_pharma_per_pat).mkdir(parents=True, exist_ok=True)
+    pid_with_selected_pharma = pharma_data['patientid'].unique()
+    # with Pool(30) as pool:
+    #     for _ in tqdm(
+    #             pool.imap_unordered(
+    #                 process_and_save_pharma_data_per_patient,
+    #                 [dict(
+    #                     pid=pid,
+    #                     pharma_pat=pharma_data[pharma_data['patientid']==pid],
+    #                     pharmaref=pharmaref,
+    #                     save_path=save_path_pharma_per_pat,
+    #                 ) for pid in pid_with_selected_pharma] #[475:476]
+    #             ), total=len(pid_with_selected_pharma)
+    #     ):
+    #         pass
+
+
+
+    ############################################################
+    # Merge all data per patient
+    ############################################################
+    print('Merge all data sources per patient...')
+    save_path_merged_data_per_pat = os.path.join(save_path, 'merged_data_per_pat')
+    Path(save_path_merged_data_per_pat).mkdir(parents=True, exist_ok=True)
+
+    metaids_physio = {
+        name: f"vm{varref.loc[varref['metavariablename'] == name, 'metavariableid'].unique().item()}" for name in
+        PHYSIO_BENCHMARK
+    }
+
+    path_merge = 'hirid_benchmark/merged_stage/'
+    # patient_data_merge_stage = dd.read_parquet(path_merge)
+    # patient_data_merge_stage = patient_data_merge_stage[['patientid', 'datetime'] + [item[1] for item in metaids_physio.items()]]
+    # patient_data_merge_stage = patient_data_merge_stage[patient_data_merge_stage['patientid'].isin(pid_valid)]
+    # patient_data_merge_stage = patient_data_merge_stage.compute()
+    # pickle.dump(patient_data_merge_stage, open(os.path.join(save_path, 'patient_data_merge_stage_selected.p'), 'wb'))
+    # patient_data_merge_stage = pickle.load(open(os.path.join(save_path, 'patient_data_merge_stage_selected.p'), 'rb'))
+    # path_endpoints = 'hirid_benchmark/endpoints'
+    # df_endpoints = pd.read_parquet(path_endpoints)
+    #
+    # with Pool(1) as pool:
+    #     for _ in tqdm(
+    #             pool.imap_unordered(
+    #                 merge_and_save_data_per_pat,
+    #                 [dict(
+    #                     save_path=save_path_merged_data_per_pat,
+    #                     save_path_pharma_per_pat=save_path_pharma_per_pat,
+    #                     pid=pid,
+    #                     df_data=patient_data_merge_stage[patient_data_merge_stage['patientid']==pid],
+    #                     df_endpoint=df_endpoints[df_endpoints['patientid']==pid],
+    #                     metaids_physio=metaids_physio,
+    #                 ) for pid in pid_valid]
+    #             ), total=len(pid_valid)
+    #     ):
+    #         pass
+
+    # ############################################################
+    # # Generate sample index -- medication
+    # ############################################################
+    # THRES_MIN = 6
+    # THRES_BEFORE_MED = 3
+    # THRES_AFTER_MED = 3
+    # sample_dict = {med: {} for med in MED_BENCHMARK}
+    #
+    # idx_sample = {med: 0 for med in MED_BENCHMARK}
+    # for pid in tqdm(pid_valid):
+    #     df = pickle.load(open(os.path.join(save_path_merged_data_per_pat, f"{pid}.p"), 'rb'))
+    #     for med in MED_BENCHMARK:
+    #         med_data = df[med]
+    #         med_data = med_data[med_data > 0]
+    #         if med_data.shape[0] > 0:
+    #             med_start = med_data.index[0]
+    #             if med_start - df.index[0] >= timedelta(hours=THRES_MIN)\
+    #                 and df.index[-1] - med_start >= timedelta(hours=THRES_AFTER_MED):
+    #                 sample_start = med_start - timedelta(hours=THRES_BEFORE_MED)
+    #                 sample_end = med_start + timedelta(hours=THRES_AFTER_MED)
+    #                 sample_dict[med][idx_sample[med]] = (pid, sample_start, sample_end)
+    #                 idx_sample[med] += 1
+    # pickle.dump(sample_dict, open(os.path.join(save_path, 'sample_lookuptable_per_med.p'), 'wb'))
+    #
+    # for med in sample_dict:
+    #     print(f"{med:<10} --- {len(sample_dict[med].keys())}")
+
+
+
+
+    ############################################################
+    # Generate infusion posiition encoding
+    ############################################################
+    sample_dict = pickle.load(open(os.path.join(save_path, 'sample_lookuptable_per_med.p'), 'rb'))
+
+    samples_per_med = {med: [] for med in MED_BENCHMARK[:1]}
+    for med in MED_BENCHMARK:
+        for idx in tqdm(sample_dict[med]):
+            pid, t_start, t_end = sample_dict[med][idx]
+            df = pickle.load(open(os.path.join(save_path_merged_data_per_pat, f"{pid}.p"), 'rb'))
+            sample = df.loc[(df.index >= t_start) & (df.index < t_end)]
+            samples_per_med[med].append(sample)
+
+
+
+    print(111)
+
+
+
+
+
+    ############################################################
+    # Generate sample index
+    ############################################################
+
+
+    # pid = pid_with_selected_pharma[0]
+    # df_pharma = pickle.load(open(os.path.join(save_path_pharma_per_pat, f'{pid}.p'), 'rb'))
+    # df_data = patient_data_merge_stage[patient_data_merge_stage['patientid']==pid].compute()
+    # df_info = patient_info[patient_info['patientid']==pid]
+    # df_endpoint = df_endpoints[df_endpoints['patientid']==pid]
+    # df_endpoint['resp_failure_status'] = df_endpoint['resp_failure_status'].apply(process_resp_endpoint)
+    #
+    # metaids_physio = {
+    #     name: f"vm{varref.loc[varref['metavariablename'] == name, 'metavariableid'].unique().item()}" for name in
+    #     PHYSIO_BENCHMARK
+    # }
+    #
+    # df_data = df_data[['datetime']+[item[1] for item in metaids_physio.items()]]
+    # df_data.columns = ['datetime'] + [item[0] for item in metaids_physio.items()]
+    # df_data.set_index('datetime', inplace=True)
+    # df_data = df_data.resample('2T', origin=df_data.index[0]).mean()
+    # df_pharma = df_pharma.resample('2T', origin=df_data.index[0]).mean()
+    # df_endpoint = df_endpoint[['datetime', 'resp_failure_status', 'circ_failure_status']].set_index('datetime')
+    # df_endpoint = df_endpoint.resample('2T', origin=df_data.index[0]).last()
+    # df_endpoint.fillna(method='ffill', inplace=True)
+    # df_all = df_data.join(df_pharma, how='outer')
+    # df_all = df_all.join(df_endpoint, how='outer')
+    # # remaining LOS
+    # los = (df_all.index[-1] - df_all.index).values / np.timedelta64(1, 'h') / 24
+    # df_all['LOS'] = los
+    print(111)
+
+
+
+    # # ############################################################
+    # # # LOAD MERGE-STAGE DATA AND SELECT RELEVANT COLUMNS
+    # # ############################################################
+    # path_merge = 'hirid_benchmark/merged_stage/'
+    # df_merge = dd.read_parquet(path_merge)
+    #
+    # cols = df_merge.columns
+    # id_obs = [int(col[2:]) for col in df_merge.columns if 'vm' in col]
+    # id_med = [int(col[2:]) for col in df_merge.columns if 'pm' in col]
+    #
+    # # selected pharma IDs
+    # print("Select pharma and physio data in the merge-stage table...")
+    # metaid_selected_obs = [varref.loc[varref['metavariablename']==name, 'metavariableid'].unique().item() for name in PHYSIO_BENCHMARK]
+    # metaid_selected_med = [pharmaref.loc[pharmaref['metavariablename']==name, 'metavariableid'].unique().item() for name in MED_BENCHMARK]
+    # col_info = ['patientid', 'datetime']
+    #
+    # try:
+    #     patient_data = df_merge[df_merge['patientid'].isin(pid_valid)]
+    #     with TqdmCallback(desc="compute"):
+    #         patient_data = patient_data[col_info + ['vm'+str(mid) for mid in metaid_selected_obs] + ['pm'+str(mid) for mid in metaid_selected_med]].compute()
+    #     patient_data.columns = col_info + PHYSIO_BENCHMARK + MED_BENCHMARK
+    #     pickle.dump(patient_data, open(os.path.join(save_path, 'patient_data_raw.p'), 'wb'))
+    # except:
+    #     pass
+    patient_data_raw = pickle.load(open(os.path.join(save_path, 'patient_data_raw.p'), 'rb'))
+
+
+    # ############################################################
+    # # APPEND APACHE & LOS TO PATIENT INFORMATION
+    # ############################################################
+    # print('Append APACHE and LOS to patient information table...')
+    # # patient information with LOS and merged APACHE
+    # patient_info = general_ext[general_ext['patientid'].isin(pid_valid)]
+    # patient_info['APACHE MERGED'] = None
+    # patient_info['LOS'] = None
+    #
+    # for pid in tqdm(pid_valid):
+    #     assert len(apache_dict_merged[pid]) == 1
+    #     patient_info.loc[patient_info['patientid'] == pid, 'APACHE MERGED'] = apache_dict_merged[pid][0]
+    #
+    #     los = patient_data[patient_data['patientid'] == pid].shape[0] / 12 / 24
+    #     patient_info.loc[patient_info['patientid'] == pid, 'LOS'] = los
+    # pickle.dump(patient_info, open(os.path.join(save_path, 'patient_info.p'), 'wb'))
+    patient_info = pickle.load(open(os.path.join(save_path, 'patient_info.p'), 'rb'))
+
+    ############################################################
+    # Resample merge-stage data to 2 min
+    ############################################################
+    
+
