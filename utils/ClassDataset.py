@@ -1,10 +1,15 @@
+import pickle
+import os
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
 
 from utils.config_dataset import MED_BENCHMARK, PHYSIO_BENCHMARK, PHYSIO_BENCHMARK_ALL, PHYSIO_BENCHMARK_CAT, NUM_CAT_PHYSIO_BENCHMARK, APACHE_BENCHMARK_MERGE_INDEX
+from statsmodels.nonparametric.smoothers_lowess import lowess
+
+import matplotlib.pyplot as plt
 
 class CusDataset(Dataset):
     def __init__(self, data):
@@ -186,4 +191,124 @@ class BenchmarkAEDataset(Dataset):
         data_num[data_num > 1] = 1
 
         return data_num
+
+
+
+class MergedDataset(Dataset):
+    def __init__(self, sample_dict, df_info, norm=True, smooth=True, selected_physio=None, selected_med=None):
+        self.sample_dict = sample_dict
+        self.df_info = df_info
+        self.norm = norm
+        self.smooth = smooth
+        self.selected_physio = selected_physio
+        self.selected_med = selected_med
+        if norm:
+            self.norm_params = pickle.load(open('processed-merge/norm_params_vasopressor.p', 'rb'))
+            self.norm_params_info = pickle.load(open('processed-merge/norm_params_info_vasopressor.p', 'rb'))
+        # self.INFO = ['age', 'height', 'sex', 'APACHE MERGED']
+
+    def __len__(self):
+        return len(self.sample_dict)
+
+    def __getitem__(self, idx):
+        sampleid = list(self.sample_dict.keys())[idx]
+        med_label, pid, t_start, t_end = self.sample_dict[sampleid]
+        med_label = self.selected_med.index(med_label)
+        if med_label == 0:
+            med_label = np.array([0, 0, 1])
+        elif med_label == 1:
+            med_label = np.array([0, 1, 0])
+        elif med_label == 2:
+            med_label = np.array([1, 0, 0])
+        else:
+            raise ValueError(f"MED_LABEL: {med_label}")
+        info = self.df_info[self.df_info['patientid']==pid]
+        df = pickle.load(open(os.path.join('processed-merge/merged_data_per_pat', f"{pid}.p"), 'rb'))
+        sample = df.loc[(df.index>=t_start) & (df.index<t_end)]
+        data = sample[self.selected_physio]
+        med = sample[MED_BENCHMARK]
+        resp_failure = sample['resp_failure_status'].values
+        circ_failure = sample['circ_failure_status'].values
+        los = sample['LOS'].values
+
+        age = info['age'].item()
+        height = info['height'].item()
+        sex = info['sex'].item()
+        sex = 1 if sex == 'M' else 0
+        sex = F.one_hot(torch.Tensor([sex]).long(), num_classes=2).flatten()
+        apache = info['APACHE MERGED'].item()
+        apache = APACHE_BENCHMARK_MERGE_INDEX[apache]
+        apache = F.one_hot(torch.Tensor([apache]).long(), num_classes=15).flatten()
+
+        if self.norm:
+            age = (age - self.norm_params_info['age'].loc['min']) / (self.norm_params_info['age'].loc['max'] - self.norm_params_info['age'].loc['min'])
+            height = (height - self.norm_params_info['height'].loc['min']) / (self.norm_params_info['height'].loc['max'] - self.norm_params_info['height'].loc['min'])
+            data = self.norm_numeric_data(data)
+            med = self.norm_numeric_data(med)
+
+            age = .5 if np.isnan(age) else age
+            height = .5 if np.isnan(height) else height
+
+        if self.smooth:
+            for col in self.selected_physio:
+                data_ = data.reset_index()[col]
+                data_ = data_[~pd.isnull(data_)]
+                x = data_.index.to_numpy()
+                y = data_.values
+                smoothed = lowess(exog=x, endog=y, frac=0.05, xvals=range(180))
+
+                plt.plot(range(180), data[col].values)
+                plt.plot(range(180), smoothed)
+                plt.title(col)
+                plt.show()
+
+                data[col] = smoothed
+
+
+
+
+        else:
+            data.fillna(-1, inplace=True)
+
+        return {
+            'info': {
+                'age': torch.Tensor([age]),
+                'height': torch.Tensor([height]),
+                'sex': sex,
+                'apache': apache,
+            },
+            'data': data.to_numpy(),
+            'med': med.to_numpy(),
+            'med_label': med_label,
+            'resp_failure': resp_failure,
+            'circ_failure': circ_failure,
+            'los': los,
+        }
+
+    def norm_numeric_data(self, data_num):
+        COLS = data_num.columns
+        data_num = (data_num - self.norm_params[COLS].loc['0.1%']) / (self.norm_params[COLS].loc['99.9%'] - self.norm_params[COLS].loc['0.1%'])
+        data_num[data_num > 1] = 1
+
+        return data_num
+
+
+
+
+if __name__ == '__main__':
+    data_path = 'processed-merge/'
+    pid_valid = pickle.load(open(os.path.join(data_path, 'pid_valid_00.p'), 'rb'))
+    patient_info = pickle.load(open(os.path.join(data_path, 'patient_info.p'), 'rb'))
+    sample_dict = pickle.load(open(os.path.join(data_path, 'sample_dict_vasopressor.p'), 'rb'))
+    selected_physio = ['HR', 'RR', 'SpO2', 'ABPd', 'ABPm', 'ABPs', 'ZVD']
+    selected_med = ['norepinephrine', 'epinephrine', 'dobutamine']
+
+    dataset = MergedDataset(sample_dict=sample_dict, df_info=patient_info, norm=True, selected_physio=selected_physio, selected_med=selected_med)
+    loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
+
+    for sample in loader:
+        info = sample['info']
+        data = sample['data'].numpy()
+        med = sample['med']
+        print(info['age'], info['height'])
 

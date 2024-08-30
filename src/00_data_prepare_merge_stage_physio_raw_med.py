@@ -9,6 +9,7 @@ import pandas as pd
 from tqdm import tqdm
 from tqdm.dask import TqdmCallback
 import dask.dataframe as dd
+from sklearn.model_selection import train_test_split
 
 os.chdir('/home/kai/DigitalICU/Experiments/HIRID-PatientStateSpace/')
 from utils.config_dataset import *
@@ -16,6 +17,8 @@ from utils.preprocess_benchmark import drop_duplicates_pharma
 
 import warnings
 warnings.filterwarnings("ignore")
+
+RANDOMSEED=2024
 
 
 def process_resp_endpoint(x):
@@ -249,7 +252,6 @@ if __name__ == '__main__':
     #         pass
 
 
-
     ############################################################
     # Merge all data per patient
     ############################################################
@@ -316,88 +318,82 @@ if __name__ == '__main__':
     #     print(f"{med:<10} --- {len(sample_dict[med].keys())}")
 
 
-
-
     ############################################################
-    # Generate infusion posiition encoding
+    # Save training samples to files
     ############################################################
     sample_dict = pickle.load(open(os.path.join(save_path, 'sample_lookuptable_per_med.p'), 'rb'))
 
-    samples_per_med = {med: [] for med in MED_BENCHMARK[:1]}
+    save_path_training_samples = os.path.join(save_path, 'training_samples')
+    for med in MED_BENCHMARK:
+        subpath = os.path.join(save_path_training_samples, med)
+        Path(subpath).mkdir(parents=True, exist_ok=True)
+
+    samples_per_med = {med: [] for med in MED_BENCHMARK}
     for med in MED_BENCHMARK:
         for idx in tqdm(sample_dict[med]):
             pid, t_start, t_end = sample_dict[med][idx]
             df = pickle.load(open(os.path.join(save_path_merged_data_per_pat, f"{pid}.p"), 'rb'))
             sample = df.loc[(df.index >= t_start) & (df.index < t_end)]
             samples_per_med[med].append(sample)
-
-
-
-    print(111)
-
-
-
+            pickle.dump(sample, open(os.path.join(save_path_training_samples, med, f"{pid}.p"), 'wb'))
 
 
     ############################################################
-    # Generate sample index
+    # Generate training sample index -- vasopressors
     ############################################################
+    sample_dict = pickle.load(open(os.path.join(save_path, 'sample_lookuptable_per_med.p'), 'rb'))
+    MED_VASOPRESSOR = ['norepinephrine', 'epinephrine', 'dobutamine']
+    sample_dict_vasopressor = {}
+    sample_id = 0
+    for med in MED_VASOPRESSOR:
+        for i in sample_dict[med]:
+            sample = sample_dict[med][i]
+            sample_dict_vasopressor[sample_id] = [med, sample[0], sample[1], sample[2]]
+            sample_id += 1
+    pickle.dump(sample_dict_vasopressor, open(os.path.join(save_path, 'sample_dict_vasopressor.p'), 'wb'))
 
 
-    # pid = pid_with_selected_pharma[0]
-    # df_pharma = pickle.load(open(os.path.join(save_path_pharma_per_pat, f'{pid}.p'), 'rb'))
-    # df_data = patient_data_merge_stage[patient_data_merge_stage['patientid']==pid].compute()
-    # df_info = patient_info[patient_info['patientid']==pid]
-    # df_endpoint = df_endpoints[df_endpoints['patientid']==pid]
-    # df_endpoint['resp_failure_status'] = df_endpoint['resp_failure_status'].apply(process_resp_endpoint)
-    #
-    # metaids_physio = {
-    #     name: f"vm{varref.loc[varref['metavariablename'] == name, 'metavariableid'].unique().item()}" for name in
-    #     PHYSIO_BENCHMARK
-    # }
-    #
-    # df_data = df_data[['datetime']+[item[1] for item in metaids_physio.items()]]
-    # df_data.columns = ['datetime'] + [item[0] for item in metaids_physio.items()]
-    # df_data.set_index('datetime', inplace=True)
-    # df_data = df_data.resample('2T', origin=df_data.index[0]).mean()
-    # df_pharma = df_pharma.resample('2T', origin=df_data.index[0]).mean()
-    # df_endpoint = df_endpoint[['datetime', 'resp_failure_status', 'circ_failure_status']].set_index('datetime')
-    # df_endpoint = df_endpoint.resample('2T', origin=df_data.index[0]).last()
-    # df_endpoint.fillna(method='ffill', inplace=True)
-    # df_all = df_data.join(df_pharma, how='outer')
-    # df_all = df_all.join(df_endpoint, how='outer')
-    # # remaining LOS
-    # los = (df_all.index[-1] - df_all.index).values / np.timedelta64(1, 'h') / 24
-    # df_all['LOS'] = los
-    print(111)
+    ############################################################
+    # Calculate normalization parameters for vasopressor samples
+    ############################################################
+    # split train-/test-dataset
+    patient_info = pickle.load(open('processed-benchmark/patient_info.p', 'rb'))
+
+    dischargestatus_vaso = []
+    for i in tqdm(sample_dict_vasopressor):
+        pid = sample_dict_vasopressor[i][1]
+        mortality = patient_info[patient_info['patientid'] == pid]['discharge_status'].item()
+        if mortality == 'alive':
+            dischargestatus_vaso.append(0)
+        elif mortality == 'dead':
+            dischargestatus_vaso.append(1)
+        else:
+            print(f"UNKNOWN STATUS: {mortality}")
+
+    sample_train, sample_test = train_test_split(list(sample_dict_vasopressor.keys()),
+                                                 test_size=0.2,
+                                                 random_state=RANDOMSEED,
+                                                 stratify=dischargestatus_vaso)
+    pickle.dump(
+        {'train': sample_train, 'test': sample_test},
+        open(os.path.join(save_path, 'train_test_split_vasopressor.p'), 'wb')
+    )
+
+    # Calculate normalization parameters with the train-set
+    df_statistics = []
+    for i in tqdm(sample_train):
+        med, pid, ts_start, ts_end = sample_dict_vasopressor[i]
+        sample = pickle.load(open(os.path.join(save_path_training_samples, med, f"{pid}.p"), 'rb'))
+        df_statistics.append(sample)
+
+    df_statistics = pd.concat(df_statistics)
+    df_statistics[MED_BENCHMARK] = df_statistics[MED_BENCHMARK].replace(.0, np.nan)
+
+    norm_params = df_statistics.describe(percentiles=[.001, .01, .05, .1, .25, .5, .75, .9, .95, .99, .999])
+    pickle.dump(norm_params, open(os.path.join(save_path, 'norm_params_vasopressor.p'), 'wb'))
 
 
 
-    # # ############################################################
-    # # # LOAD MERGE-STAGE DATA AND SELECT RELEVANT COLUMNS
-    # # ############################################################
-    # path_merge = 'hirid_benchmark/merged_stage/'
-    # df_merge = dd.read_parquet(path_merge)
-    #
-    # cols = df_merge.columns
-    # id_obs = [int(col[2:]) for col in df_merge.columns if 'vm' in col]
-    # id_med = [int(col[2:]) for col in df_merge.columns if 'pm' in col]
-    #
-    # # selected pharma IDs
-    # print("Select pharma and physio data in the merge-stage table...")
-    # metaid_selected_obs = [varref.loc[varref['metavariablename']==name, 'metavariableid'].unique().item() for name in PHYSIO_BENCHMARK]
-    # metaid_selected_med = [pharmaref.loc[pharmaref['metavariablename']==name, 'metavariableid'].unique().item() for name in MED_BENCHMARK]
-    # col_info = ['patientid', 'datetime']
-    #
-    # try:
-    #     patient_data = df_merge[df_merge['patientid'].isin(pid_valid)]
-    #     with TqdmCallback(desc="compute"):
-    #         patient_data = patient_data[col_info + ['vm'+str(mid) for mid in metaid_selected_obs] + ['pm'+str(mid) for mid in metaid_selected_med]].compute()
-    #     patient_data.columns = col_info + PHYSIO_BENCHMARK + MED_BENCHMARK
-    #     pickle.dump(patient_data, open(os.path.join(save_path, 'patient_data_raw.p'), 'wb'))
-    # except:
-    #     pass
-    patient_data_raw = pickle.load(open(os.path.join(save_path, 'patient_data_raw.p'), 'rb'))
 
 
     # ############################################################
@@ -418,8 +414,6 @@ if __name__ == '__main__':
     # pickle.dump(patient_info, open(os.path.join(save_path, 'patient_info.p'), 'wb'))
     patient_info = pickle.load(open(os.path.join(save_path, 'patient_info.p'), 'rb'))
 
-    ############################################################
-    # Resample merge-stage data to 2 min
-    ############################################################
+
     
 
