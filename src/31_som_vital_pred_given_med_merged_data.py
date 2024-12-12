@@ -15,7 +15,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from utils.config_dataset import *
 from utils.ClassDataset import MergedDataset
-from utils.ClassSOM import SOM_CLF, SOM_PRED, SOM_MTL
+from utils.ClassSOM import VASO_CLF, VASO_PHYSIO_PRED, SOM_PRED
 from utils.data_io import load_train_test_dataset
 
 RANDOMSEED=2024
@@ -42,14 +42,17 @@ if __name__ == '__main__':
     som_size = 8
     r_neighbor = 3
     dropout = 0.1
-    alpha = 3
-    beta = 1
+    alpha = 5
+    beta = 5
 
 
     model_name = f"{encoder_type}-{n_emb}hidden-{som_size}som-{r_neighbor}r-{dropout}dropout-{batchsize}-{lr}"
     print(model_type, model_name)
 
-    DATA = load_train_test_dataset(batchsize=batchsize, RANDOMSEED=RANDOMSEED, norm=True, smooth=True)
+    DATA = load_train_test_dataset(
+        batchsize=batchsize,
+        sample_dict_file='sample_dict_vasopressor_filtered70.p',
+        RANDOMSEED=RANDOMSEED, norm=True, smooth=True, interpolate=True)
     pid_valid = DATA['pid_valid']
     norm_params = DATA['norm_params']
     norm_params_info = DATA['norm_params_info']
@@ -114,12 +117,12 @@ if __name__ == '__main__':
         'beta': beta,
     }
 
-    if model_type == 'SOM_CLF':
-        model = SOM_CLF(config).to(device)
-    elif model_type == 'SOM_PRED':
+    if model_type == 'VASO_CLF':
+        model = VASO_CLF(config).to(device)
+    elif model_type == 'VASO_PHYSIO_PRED':
+        model = VASO_PHYSIO_PRED(config).to(device)
+    elif model_type =='SOM_PRED':
         model = SOM_PRED(config).to(device)
-    elif model_type =='SOM_MTL':
-        model = SOM_MTL(config).to(device)
     else:
         print(f'{model_type} is not supported!')
 
@@ -141,6 +144,14 @@ if __name__ == '__main__':
             save_top_k=1,
             dirpath=f'{model_save_path}/version_{version}',
             filename='epoch{epoch:02d}-val_loss{val_loss:.5f}',
+            auto_insert_metric_name=False
+        ),
+        ModelCheckpoint(
+            monitor='val_loss_pred',
+            mode='min',
+            save_top_k=1,
+            dirpath=f'{model_save_path}/version_{version}',
+            filename='epoch{epoch:02d}-val_loss_pred{val_loss_pred:.5f}',
             auto_insert_metric_name=False
         ),
         EarlyStopping(

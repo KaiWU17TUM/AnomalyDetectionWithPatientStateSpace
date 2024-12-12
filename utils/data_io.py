@@ -19,6 +19,7 @@ from utils.config_dataset import *
 from utils.ClassDataset import MergedDataset
 
 
+
 #
 # selected_pharma_file = os.path.join(path_processed, 'selected_pharma.p')
 # selected_physio_file = os.path.join(path_processed, 'selected_physio.csv')
@@ -36,36 +37,71 @@ def pickle_dump(data, path):
     pickle.dump(data, open(path, 'wb'))
     return 1
 
-def load_train_test_dataset(batchsize, RANDOMSEED=2024, norm=True, smooth=True):
+def load_train_test_dataset(
+        batchsize,
+        sample_dict_file='sample_dict_vasopressor_filtered70.p',
+        type='vaso',
+        RANDOMSEED=2024,
+        norm=True, smooth=True, interpolate=True,
+        n_step=3, n_step_med=15,
+        data_path='processed-merge/'):
     # load data
     print("Loading dataset")
-    data_path = 'processed-merge/'
-    pid_valid = pickle.load(open(os.path.join(data_path, 'pid_valid_00.p'), 'rb'))
-    patient_info = pickle.load(open(os.path.join(data_path, 'patient_info.p'), 'rb'))
-    sample_dict = pickle.load(open(os.path.join(data_path, 'sample_dict_vasopressor.p'), 'rb'))
-    norm_params = pickle.load(open('processed-merge/norm_params_vasopressor.p', 'rb'))
-    norm_params_info = pickle.load(open('processed-merge/norm_params_info_vasopressor.p', 'rb'))
+    try:
+        pid_valid = pickle_load(os.path.join(data_path, 'pid_valid_00.p'))
+    except:
+        pid_valid = pickle_load(os.path.join(data_path, 'pid_valid.p'))
 
+    patient_info = pickle_load(os.path.join(data_path, 'patient_info.p'))
+    sample_dict = pickle_load(os.path.join(data_path, sample_dict_file))
+    norm_params = pickle_load(os.path.join(data_path, 'norm_params_vasopressor.p'))
+    try:
+        norm_params_info = pickle_load(os.path.join(data_path, 'norm_params_info_vasopressor.p'))
+    except:
+        norm_params_info = pickle_load(os.path.join(data_path, 'norm_params_info.p'))
 
-    med_labels = np.array([sample_dict[i][0] for i in range(len(sample_dict))])
+    # med_labels = np.array([sample_dict[i][0] for i in range(len(sample_dict))])
     selected_physio = ['HR', 'RR', 'SpO2', 'ABPd', 'ABPm', 'ABPs', 'ZVD']
     selected_med = ['norepinephrine', 'epinephrine', 'dobutamine']
-    sampleid_train, sampleid_test = train_test_split(list(sample_dict.keys()),
-                                                 test_size=0.2,
-                                                 random_state=RANDOMSEED,
-                                                 stratify=med_labels)
-    sampleid_tr, sampleid_val = train_test_split(sampleid_train, test_size=0.2, random_state=RANDOMSEED,
-                                                 stratify=med_labels[sampleid_train])
-
+    if type == 'vaso':
+        med_labels = np.array([sample_dict[i][0] for i in range(len(sample_dict))])
+        sampleid_train, sampleid_test = train_test_split(list(sample_dict.keys()),
+                                                     test_size=0.2,
+                                                     random_state=RANDOMSEED,
+                                                     stratify=med_labels)
+        sampleid_tr, sampleid_val = train_test_split(sampleid_train, test_size=0.2, random_state=RANDOMSEED,
+                                                     stratify=med_labels[sampleid_train])
+        print(f"SAMPLE TRAIN: {len(sampleid_tr)}, SAMPLE VAL: {len(sampleid_val)}, SAMPLE TEST: {len(sampleid_test)}")
+    elif type == 'control':
+        pid_unique = list(set([sample_dict[i][0] for i in range(len(sample_dict))]))
+        pid_train, pid_test = train_test_split(pid_unique,
+                                               test_size=0.2,
+                                               random_state=RANDOMSEED,
+                                               )
+        pid_tr, pid_val = train_test_split(pid_train, test_size=0.2, random_state=RANDOMSEED)
+        sampleid_tr = [i for i in sample_dict if sample_dict[i][0] in pid_tr]
+        sampleid_val = [i for i in sample_dict if sample_dict[i][0] in pid_val]
+        sampleid_test = [i for i in sample_dict if sample_dict[i][0] in pid_test]
+        print(f"PID TRAIN: {len(pid_tr)}, PID VAL: {len(pid_val)}, PID TEST: {len(pid_test)}")
+        print(f"SAMPLE TRAIN: {len(sampleid_tr)}, SAMPLE VAL: {len(sampleid_val)}, SAMPLE TEST: {len(sampleid_test)}")
     dataset_train = MergedDataset(
         sample_dict={item[0]: item[1] for item in sample_dict.items() if item[0] in sampleid_tr},
-        df_info=patient_info, norm=norm, smooth=smooth, selected_physio=selected_physio, selected_med=selected_med)
+        df_info=patient_info, type=type,
+        norm=norm, smooth=smooth, interpolate=interpolate,
+        n_step=n_step, n_step_med=n_step_med,
+        selected_physio=selected_physio, selected_med=selected_med)
     dataset_val = MergedDataset(
         sample_dict={item[0]: item[1] for item in sample_dict.items() if item[0] in sampleid_val},
-        df_info=patient_info, norm=norm, smooth=smooth, selected_physio=selected_physio, selected_med=selected_med)
+        df_info=patient_info, type=type,
+        norm=norm, smooth=smooth, interpolate=interpolate,
+        n_step=n_step, n_step_med=n_step_med,
+        selected_physio=selected_physio, selected_med=selected_med)
     dataset_test = MergedDataset(
         sample_dict={item[0]: item[1] for item in sample_dict.items() if item[0] in sampleid_test},
-        df_info=patient_info, norm=norm, smooth=smooth, selected_physio=selected_physio, selected_med=selected_med)
+        df_info=patient_info, type=type,
+        norm=norm, smooth=smooth, interpolate=interpolate,
+        n_step=n_step, n_step_med=n_step_med,
+        selected_physio=selected_physio, selected_med=selected_med)
     loader_train = DataLoader(dataset_train, batch_size=batchsize, shuffle=True, num_workers=batchsize)
     loader_val = DataLoader(dataset_val, batch_size=batchsize, shuffle=False, num_workers=batchsize)
     loader_test = DataLoader(dataset_test, batch_size=batchsize, shuffle=False, num_workers=batchsize)
@@ -84,8 +120,14 @@ def load_train_test_dataset(batchsize, RANDOMSEED=2024, norm=True, smooth=True):
     }
 
 
-
-
+def load_sample(save_path, sample_dict_i):
+    try:
+        pid, t_start, t_end = sample_dict_i
+    except:
+        _, pid, t_start, t_end = sample_dict_i
+    df = pickle.load(open(os.path.join(save_path, 'merged_data_per_pat', f"{pid}.p"), 'rb'))
+    sample = df.loc[(df.index>=t_start) & (df.index<t_end)]
+    return sample
 
 # def read_patient_data(apache, pid, norm=True, processed_path=path_processed):
 #     if norm:

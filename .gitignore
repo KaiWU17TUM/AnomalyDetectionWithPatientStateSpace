@@ -2,11 +2,13 @@ HiRID_v1/
 physionet.org/
 .idea/
 plots/
-processed/
-processed-v2/
+processed*/
+*model*/
 .ipynb_checkpoints/
 __pycache__/
 remote-pycharm/
 HIRID-ICU-Benchmark/
 hirid_benchmark/
 models/
+lightning_logs/
+data*/

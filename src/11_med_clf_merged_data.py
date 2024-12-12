@@ -15,7 +15,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from utils.config_dataset import *
 from utils.ClassDataset import MergedDataset
-from utils.ClassSOM import SOM_CLF, SOM_PRED, SOM_MTL
+from utils.ClassSOM import VASO_CLF, VASO_PHYSIO_PRED
 
 RANDOMSEED=2024
 torch.manual_seed(RANDOMSEED)
@@ -26,7 +26,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 
 if __name__ == '__main__':
-    model_type = 'SOM_CLF'
+    model_type = 'VASO_CLF'
 
     device = 'cuda'
     batchsize = 8
@@ -98,10 +98,10 @@ if __name__ == '__main__':
         'beta': beta,
     }
 
-    if model_type == 'SOM_CLF':
-        model = SOM_CLF(config).to(device)
-    elif model_type == 'SOM_PRED':
-        model = SOM_PRED(config).to(device)
+    if model_type == 'VASO_CLF':
+        model = VASO_CLF(config).to(device)
+    elif model_type == 'VASO_PHYSIO_PRED':
+        model = VASO_PHYSIO_PRED(config).to(device)
     elif model_type =='SOM_MTL':
         model = SOM_MTL(config).to(device)
     else:
