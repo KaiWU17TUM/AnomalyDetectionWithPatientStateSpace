@@ -501,10 +501,10 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
             # input: current vital + pred vital + current med + accumulated med + embedded info
             self.monotonic_physio = lmn.MonotonicWrapper(
                 nn.Sequential(
-                    lmn.LipschitzLinear(2 * self.n_feat + 2 * self.n_feat_med + self.n_emb_info, self.n_feat, kind="one"),
+                    lmn.LipschitzLinear(2 * self.n_feat + 2 * self.n_feat_med + self.n_emb_info, 2 * self.n_feat + 2 * self.n_feat_med + self.n_emb_info, kind="one-inf"),
                     nn.LeakyReLU(),
                     # lmn.GroupSort(self.n_groupsort),
-                    # lmn.LipschitzLinear(self.n_emb_mono, self.n_feat, kind="inf"),
+                    lmn.LipschitzLinear(2 * self.n_feat + 2 * self.n_feat_med + self.n_emb_info, self.n_feat, kind="inf"),
                 ),
                 monotonic_constraints=self.monotonic_constraints_physio.astype(np.double)
             )
@@ -512,8 +512,6 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
             self.monotonic_physio = nn.Sequential(
                     nn.Linear(2 * self.n_feat + 2 * self.n_feat_med + self.n_emb_info, self.n_feat),
                     nn.LeakyReLU(),
-                    # lmn.GroupSort(self.n_groupsort),
-                    # lmn.LipschitzLinear(self.n_emb_mono, self.n_feat, kind="inf"),
                 )
         else:
             raise ValueError(f"Unsupported regression type: {self.regression_type}. ")
