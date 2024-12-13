@@ -60,7 +60,7 @@ if __name__ == '__main__':
     n_emb_info = 8
     dropout = 0.1
     # mono param
-    regression_type = 'mono'        # 'mono' or 'fc'
+    regression_type = 'fc'        # 'mono' or 'fc'
     n_emb_mono = 35
     n_groupsort = 5
     # Prior knowledge of vasoactive agents on vital signs
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     n_step = 3
     n_step_med = 15
 
-    model_name = f"{n_feat}input-{n_emb_mono}mono-{n_step}step-{n_step_med}-nedstep-{dropout}dropout-{batchsize}-{lr}"
+    model_name = f"{regression_type}-{n_feat}input-{n_emb_mono}mono-{n_step}step-{n_step_med}-nedstep-{dropout}dropout-{batchsize}-{lr}"
     print(model_type, model_name)
 
     DATA = load_train_test_dataset(

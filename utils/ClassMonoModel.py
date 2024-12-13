@@ -579,7 +579,7 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
         # print(x_mask.sum())
         x_next_hat = self.forward(batch)
 
-        loss_pred = mae_loss(x_next_hat, x_regression, x_mask)
+        loss_pred = mse_loss(x_next_hat, x_regression, x_mask)
 
         # loss = self.alpha * loss_pred + self.beta * loss_ae
         loss = loss_pred
@@ -598,7 +598,7 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
         # print(x_mask.sum())
         x_next_hat = self.forward(batch)
 
-        loss_pred = mae_loss(x_next_hat, x_regression, x_mask)
+        loss_pred = mse_loss(x_next_hat, x_regression, x_mask)
 
         # loss = self.alpha * loss_pred + self.beta * loss_ae
         loss = loss_pred
@@ -618,7 +618,7 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
         # print(x_mask.sum())
         x_next_hat = self.forward(batch)
 
-        loss_pred = mae_loss(x_next_hat, x_regression, x_mask)
+        loss_pred = mse_loss(x_next_hat, x_regression, x_mask)
 
         # loss = self.alpha * loss_pred + self.beta * loss_ae
         loss = loss_pred

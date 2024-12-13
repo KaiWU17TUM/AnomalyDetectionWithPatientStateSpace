@@ -318,7 +318,7 @@ class MergedDataset(Dataset):
         COLS = data_num.columns
         for col in COLS:
             data_num.loc[data_num[col] > self.norm_params[col].loc['99.9%'], col] = self.norm_params[col].loc['99.9%']
-            data_num.loc[data_num[col] < self.norm_params[col].loc['0.1%']] = self.norm_params[col].loc['0.1%']
+            data_num.loc[data_num[col] < self.norm_params[col].loc['0.1%'], col] = self.norm_params[col].loc['0.1%']
         data_num = (data_num - self.norm_params[COLS].loc['0.1%']) / (self.norm_params[COLS].loc['99.9%'] - self.norm_params[COLS].loc['0.1%'])
 
         return data_num
