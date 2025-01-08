@@ -36,7 +36,7 @@ pharma_raw_path = 'physionet.org/files/hirid/1.1.1/raw_stage/pharma_records/parq
 # path_processed = 'processed-v2/'
 # selected_physio = pd.read_csv(os.path.join(path_processed, 'selected_physio.csv'))
 # selected_pharma = pickle.load(open(os.path.join(path_processed, 'selected_pharma.p'), 'rb'))
-varref, pharmaref = read_reference_table(os.path.join('processed-v2/', 'varref.tsv'))    # from HIRID GitHub repo
+varref, pharmaref = read_reference_table(os.path.join('processed-merge-v3/', 'varref.tsv'))    # from HIRID GitHub repo
 
 # pid_list = pickle.load(open('processed/pid_valid.p', 'rb'))
 # pid_group = pickle.load(open('processed/pid_group_valid.p', 'rb'))

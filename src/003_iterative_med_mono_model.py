@@ -36,11 +36,11 @@ def get_physio_constraints(n_feat, n_feat_med, n_info_emb, idx_feat=[4]):
     ]
     if n_feat != 7:
         mono_vaso = np.array(mono_vaso)[:, idx_feat]
-    mono_med_other = [[0] * n_feat] * (n_feat_med-3)
+    # mono_med_other = [[0] * n_feat] * (n_feat_med-3)
     mono_info = [[0] * n_feat] * n_info_emb
 
-    constraints = np.concatenate((mono_physio_curr, mono_physio_pred, mono_vaso, mono_med_other, mono_vaso, mono_med_other, mono_info), axis=0)
-
+    # constraints = np.concatenate((mono_physio_curr, mono_physio_pred, mono_vaso, mono_med_other, mono_vaso, mono_med_other, mono_info), axis=0)
+    constraints = np.concatenate((mono_physio_curr, mono_physio_pred, mono_vaso, mono_vaso, mono_info), axis=0)
 
     print(f"MONO CONSTRAINT PHYSIO: {constraints.shape}")
 
@@ -51,12 +51,12 @@ if __name__ == '__main__':
     model_type = 'MED_ITERATIVE_MONO'
 
     device = 'cuda'
-    batchsize = 8
+    batchsize = 16
     lr = 5e-4
     #input
     seq_len = 180
     n_feat = 1
-    n_feat_med = 7
+    n_feat_med = 3
     n_emb_info = 8
     dropout = 0.1
     # mono param
@@ -68,10 +68,13 @@ if __name__ == '__main__':
     # vital signs: 'HR', 'RR', 'SpO2', 'ABPd', 'ABPm', 'ABPs', 'ZVD',
     physio_constraints = get_physio_constraints(n_feat, n_feat_med, n_emb_info)
     # iterative steps
-    n_step = 3
+    n_step = 7
     n_step_med = 15
+    # loss weight
+    alpha = 5
+    beta = 8
 
-    model_name = f"{regression_type}-{n_feat}input-{n_emb_mono}mono-{n_step}step-{n_step_med}-nedstep-{dropout}dropout-{batchsize}-{lr}"
+    model_name = f"{regression_type}-{n_feat}input-{alpha}-{beta}-{n_step}step-{n_step_med}-nedstep-{dropout}dropout-{batchsize}-{lr}"
     print(model_type, model_name)
 
     DATA = load_train_test_dataset(
@@ -110,6 +113,9 @@ if __name__ == '__main__':
         'n_emb_mono': n_emb_mono,
         'n_groupsort': n_groupsort,
         'monotonic_constraints_physio': physio_constraints,
+        # loss
+        'alpha': alpha,
+        'beta': beta,
     }
 
     if model_type == 'MED_ITERATIVE_MONO':
@@ -128,23 +134,31 @@ if __name__ == '__main__':
 
     callbacks = [
         ModelCheckpoint(
-            monitor='val_loss',
+            monitor='val_loss_ar',
             mode='min',
             save_top_k=1,
             dirpath=f'{model_save_path}/version_{version}',
             filename='epoch{epoch:02d}-val_loss{val_loss:.5f}',
             auto_insert_metric_name=False
         ),
-        # ModelCheckpoint(
-        #     monitor='val_loss_pred',
-        #     mode='min',
-        #     save_top_k=1,
-        #     dirpath=f'{model_save_path}/version_{version}',
-        #     filename='epoch{epoch:02d}-val_loss_pred{val_loss_pred:.5f}',
-        #     auto_insert_metric_name=False
-        # ),
-        EarlyStopping(
+        ModelCheckpoint(
             monitor='val_loss',
+            mode='min',
+            save_top_k=1,
+            dirpath=f'{model_save_path}/version_{version}',
+            filename='epoch{epoch:02d}-val_loss_pred{val_loss_pred:.5f}',
+            auto_insert_metric_name=False
+        ),
+        ModelCheckpoint(
+            monitor='val_cstr',
+            mode='min',
+            save_top_k=1,
+            dirpath=f'{model_save_path}/version_{version}',
+            filename='epoch{epoch:02d}-val_loss_pred{val_loss_pred:.5f}',
+            auto_insert_metric_name=False
+        ),
+        EarlyStopping(
+            monitor='val_loss_ar',
             mode='min',
             patience=30,
         )

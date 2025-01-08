@@ -1,4 +1,7 @@
+import os
 import numpy as np
+from copy import deepcopy
+
 import torch
 from torch import nn, Tensor
 from torch.utils.data import DataLoader
@@ -13,6 +16,8 @@ from pytorch_lightning.core.lightning import LightningModule
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
+
+from utils.data_io import pickle_load
 
 
 med_dict = {
@@ -78,16 +83,22 @@ class BaseModel(LightningModule):
         self.input_len = int(self.seq_len // 2)
         self.pred_len = int(self.seq_len // 2)
         # model params
-        self.encoder_type = config['encoder_type']
-        self.n_emb = config['n_emb']
-        self.n_emb_info = config['n_emb_info']
-        self.n_emb_med = config['n_emb_med']
+        try:
+            self.encoder_type = config['encoder_type']
+            self.n_emb = config['n_emb']
+            self.n_emb_info = config['n_emb_info']
+            self.n_emb_med = config['n_emb_med']
+        except:
+            pass
         self.dropout = config['dropout']
         # SOM params
-        self.som_size = config['som_size']
-        self.r_neighbor = config['r_neighbor']
-        self.centroids = torch.rand(self.som_size**2, self.n_emb)
-        self.som_map, self.som_map_invert = index_map(self.som_size)
+        try:
+            self.som_size = config['som_size']
+            self.r_neighbor = config['r_neighbor']
+            self.centroids = torch.rand(self.som_size**2, self.n_emb)
+            self.som_map, self.som_map_invert = index_map(self.som_size)
+        except:
+            pass
 
         self.METRICS = {
             'mse': mse_loss,
@@ -145,7 +156,7 @@ class BaseModel(LightningModule):
                 nn.Conv1d(in_channels=self.n_feat_med, out_channels=self.n_feat_med * 5,
                           kernel_size=cnn_params['cnn_kernel1'], stride=cnn_params['cnn_stride1'], groups=self.n_feat_med),
                 nn.ReLU(),
-                nn.Conv1d(in_channels=cnn_params['cnn_out1'], out_channels=cnn_params['cnn_out2'],
+                nn.Conv1d(in_channels=self.n_feat_med * 5, out_channels=cnn_params['cnn_out2'],
                           kernel_size=cnn_params['cnn_kernel2'], stride=cnn_params['cnn_stride2'], groups=1),
                 nn.ReLU(),
                 # nn.Conv1d(in_channels=7, out_channels=56, kernel_size=6, stride=1, groups=7),
@@ -193,9 +204,6 @@ class BaseModel(LightningModule):
         self.centroids = torch.normal(mean=0.0, std=0.05,
                                      size=(self.som_size**2, self.n_emb),
                                      requires_grad=True)
-
-
-
 
 
 
@@ -367,7 +375,7 @@ class VASO_PHYSIO_PRED(BaseModel):
         apache = data['info']['apache']
         x_info = torch.cat((age, height, sex, apache), dim=1)
         x = data['data'][:, :self.input_len, :].permute(0, 2, 1).float()
-        med = data['med'][:, self.input_len:, :].permute(0, 2, 1).float()
+        med = data['med'][:, self.input_len:, :self.n_feat_med].permute(0, 2, 1).float()
         med[torch.isnan(med)] = 0
 
         # print(f"000 X: {x.shape} --- MED: {med.shape}")
@@ -397,7 +405,7 @@ class VASO_PHYSIO_PRED(BaseModel):
         x_next_hat = self.decoder_pred(x_enc_next.reshape(med_enc.shape))
         # print(f"555 X PRED: {x_next_hat.shape}")
 
-        return x_hat.permute(0, 2, 1), x_next_hat.permute(0, 2, 1)
+        return x_hat.permute(0, 2, 1), x_next_hat.permute(0, 2, 1), x_enc, x_enc_next, x_info_enc
 
 
     def training_step(self, batch, batch_idx):
@@ -405,7 +413,7 @@ class VASO_PHYSIO_PRED(BaseModel):
         x_mask = batch['data_mask']
         x_curr = x[:, :self.input_len, :]
         x_next = x[:, self.input_len:, :]
-        x_hat, x_next_hat = self.forward(batch)
+        x_hat, x_next_hat, x_enc, x_enc_next, x_info_enc = self.forward(batch)
         # print(torch.isnan(x.reshape(-1)).sum().item(),
         #       torch.isnan(x_hat.reshape(-1)).sum().item(),
         #       torch.isnan(x_next_hat.reshape(-1)).sum().item())
@@ -417,7 +425,7 @@ class VASO_PHYSIO_PRED(BaseModel):
                               + self.loss_weight_constrait(self.decoder_ae[2].weight,
                                                            self.decoder_pred[2].weight)
 
-        loss = self.alpha * loss_pred + self.beta * loss_ae  + loss_similarity_dec
+        loss = self.alpha * loss_pred + self.beta * loss_ae + loss_similarity_dec
 
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
         for loss_, loss_type in zip([loss_ae, loss_pred, loss_similarity_dec], ['loss_reconst', 'loss_pred', 'loss_constrain']):
@@ -430,7 +438,7 @@ class VASO_PHYSIO_PRED(BaseModel):
         x_mask = batch['data_mask']
         x_curr = x[:, :self.input_len, :]
         x_next = x[:, self.input_len:, :]
-        x_hat, x_next_hat = self.forward(batch)
+        x_hat, x_next_hat, x_enc, x_enc_next, x_info_enc = self.forward(batch)
 
         loss_ae = mae_loss(x_hat, x_curr, x_mask[:, :90, :])
         loss_pred = mae_loss(x_next_hat, x_next, x_mask[:, 90:, :])
@@ -454,7 +462,7 @@ class VASO_PHYSIO_PRED(BaseModel):
         x_mask = batch['data_mask']
         x_curr = x[:, :self.input_len, :]
         x_next = x[:, self.input_len:, :]
-        x_hat, x_next_hat = self.forward(batch)
+        x_hat, x_next_hat, x_enc, x_enc_next, x_info_enc = self.forward(batch)
 
         loss_ae = mae_loss(x_hat, x_curr, x_mask[:, :90, :])
         loss_pred = mae_loss(x_next_hat, x_next, x_mask[:, 90:, :])
@@ -474,6 +482,98 @@ class VASO_PHYSIO_PRED(BaseModel):
         return outputs
 
 
+
+
+class VASO_DOSAGE_PRED(BaseModel):
+    # Predictor for physio trend when taking medication
+    def __init__(self, config):
+        super().__init__(config)
+        self.rnn_hidden = config['rnn_hidden']
+        self.load_ae_physio(config['ae_model_path'])
+
+        self.lstm = nn.LSTM(input_size=self.n_feat, hidden_size=self.rnn_hidden, num_layers=1,
+                                    dropout=self.dropout, batch_first=True)
+        self.dosage_clf = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(in_features=self.rnn_hidden, out_features=3),
+            nn.Sigmoid()
+        )
+
+        self.loss = TemporalCrossEntropy(num_classes=3)
+
+    def load_ae_physio(self, model_path):
+        files = os.listdir(model_path)
+        model_file = None
+        model_config = None
+        for file in files:
+            if "val_loss_pred" in file:
+                model_file = os.path.join(model_path, file)
+            elif file == "model_config.p":
+                model_config = pickle_load(os.path.join(model_path, file))
+        self.ae_physio = VASO_PHYSIO_PRED.load_from_checkpoint(checkpoint_path=model_file, config=model_config)
+        self.ae_physio.to(self.device)
+        self.ae_physio.eval()
+
+
+    def forward(self, data):
+        # age = data['info']['age']
+        # height = data['info']['height']
+        # sex = data['info']['sex']
+        # apache = data['info']['apache']
+        # x_info = torch.cat((age, height, sex, apache), dim=1)
+        # x = data['data'][:, :self.input_len, :].permute(0, 2, 1).float()
+        # med = data['med'][:, self.input_len:, :self.n_feat_med].permute(0, 2, 1).float()
+        # med[torch.isnan(med)] = 0
+
+        _, x_next_hat = self.ae_physio(data)
+        batchsize = x_next_hat.size(0)
+        device = x_next_hat.device
+
+        # print(f"111 X_PRED: {x_next_hat.shape}, X_NEXT: {data['data'][:, self.input_len:, :].shape}")
+        x_diff = x_next_hat - data['data'][:, self.input_len:, :]
+
+        h0 = torch.zeros(1, batchsize, self.rnn_hidden).to(device)
+        c0 = torch.zeros(1, batchsize, self.rnn_hidden).to(device)
+        out, (h, c) = self.lstm(x_diff.float(), (h0, c0))     # out: (batch_size, seq_length, hidden_size)
+
+        dosage_pred = torch.empty((batchsize, 0, 3)).to(device)
+        for i in range(out.shape[1]):
+            pred = self.dosage_clf(out[:,i,:])
+            dosage_pred = torch.concat((dosage_pred, pred[:,None,:]), dim=1)
+        # print(f"222 DOSAGE_TREND: {dosage_pred.shape}")
+
+        return dosage_pred
+
+
+    def training_step(self, batch, batch_idx):
+        dosage_trend_gt = batch['dosage_trend_bool'][:,self.input_len:,:]
+        dosage_trend = self.forward(batch)
+
+        loss = self.loss(dosage_trend, dosage_trend_gt)
+        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        dosage_trend_gt = batch['dosage_trend_bool'][:,self.input_len:,:]
+        dosage_trend = self.forward(batch)
+
+        loss = self.loss(dosage_trend, dosage_trend_gt)
+
+        outputs = {'val_loss': loss}
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+
+        return outputs
+
+    def test_step(self, batch, batch_idx):
+        dosage_trend_gt = batch['dosage_trend_bool'][:,self.input_len:,:]
+        dosage_trend = self.forward(batch)
+
+        loss = self.loss(dosage_trend, dosage_trend_gt)
+
+        outputs = {'test_loss': loss}
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        return outputs
 
 
 class VASO_PHYSIO_PRED_MONO(BaseModel):
@@ -629,6 +729,54 @@ class VASO_PHYSIO_PRED_MONO(BaseModel):
             self.log("test_" + loss_type, loss_, on_step=False, on_epoch=True,
                      prog_bar=True, logger=True)
         return outputs
+
+
+class TemporalCrossEntropy(nn.Module):
+    def __init__(self, num_classes=3, weight=[.1, 1., 1.]):
+        """
+        Loss function for temporal sequence classification with a tolerance window.
+        :param num_classes: Integer, total number of classes (time steps).
+        """
+        super().__init__()
+        self.tolerance_window = 2
+        self.window = torch.Tensor([.25, .5, 1, .5, .25])
+        self.num_classes = num_classes
+        self.ce_loss = nn.CrossEntropyLoss(reduction='mean', weight=torch.tensor(weight))
+
+    def forward(self, probs, targets):
+        """
+        Compute the temporal tolerance loss.
+        :param probs: Tensor, shape (batch_size, seq_length, num_classes), raw model predictions.
+        :param targets: Tensor, shape (batch_size, seq_length, num_classes), true time step labels.
+        :return: Tensor, scalar loss value.
+        """
+        batch_size, seq_length, num_classes = probs.shape
+
+        targets_ = torch.empty(0, seq_length, num_classes).to(probs.device)
+        for b in range(batch_size):
+            targets_tol = torch.empty(seq_length, 0).to(probs.device)
+            for c in range(num_classes):
+                indices = torch.nonzero(targets[b,:,c]==1)
+                if len(indices) == 0:
+                    targets_c = torch.zeros(seq_length).to(probs.device)
+                else:
+                    targets_c = torch.empty(0, seq_length).to(probs.device)
+                    for idx in indices:
+                        start = max(idx-2, 0)
+                        end = min(idx+2+1, seq_length)
+                        t = torch.zeros(1, seq_length).to(probs.device)
+                        try:
+                            t[0, start:end] = self.window[(start-idx+2):(end-idx+2)]
+                        except:
+                            print(idx)
+                        targets_c = torch.concat((targets_c, t), dim=0)
+                    targets_c, _ = torch.max(targets_c, dim=0)
+                targets_tol = torch.concat((targets_tol, targets_c[:, None]), dim=1)
+            targets_ = torch.concat((targets_, targets_tol[None, :, :]), dim=0)
+
+        ce_loss = self.ce_loss(probs.reshape(-1, num_classes), targets_.reshape(-1, num_classes),)
+
+        return ce_loss
 
 
 

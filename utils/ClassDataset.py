@@ -193,9 +193,10 @@ import matplotlib.pyplot as plt
 
 
 class MergedDataset(Dataset):
-    def __init__(self, sample_dict, df_info, type='vaso', norm=True, smooth=True, interpolate=True,
+    def __init__(self, base_path, sample_dict, df_info, type='vaso', norm=True, smooth=True, interpolate=True,
                  n_step=3, n_step_med=15,
                  selected_physio=None, selected_med=None):
+        self.base_path = base_path
         self.sample_dict = sample_dict
         self.df_info = df_info
         self.type = type
@@ -207,18 +208,20 @@ class MergedDataset(Dataset):
         self.selected_physio = selected_physio
         self.selected_med = selected_med
         if norm:
-            self.norm_params = pickle.load(open('processed-merge/norm_params_vasopressor.p', 'rb'))
-            self.norm_params_info = pickle.load(open('processed-merge/norm_params_info_vasopressor.p', 'rb'))
+            self.norm_params = pickle.load(open(os.path.join(self.base_path, 'norm_params_vasopressor.p'), 'rb'))
+            self.norm_params_info = pickle.load(open(os.path.join(self.base_path, 'norm_params_info.p'), 'rb'))
         # self.INFO = ['age', 'height', 'sex', 'APACHE MERGED']
 
     def __len__(self):
         return len(self.sample_dict)
 
     def __getitem__(self, idx):
+
         sampleid = list(self.sample_dict.keys())[idx]
         if self.type == 'vaso':
-            med_label, pid, t_start, t_end = self.sample_dict[sampleid]
-            med_label = self.selected_med.index(med_label)
+            med_name, pid, t_start, t_end = self.sample_dict[sampleid]
+
+            med_label = self.selected_med.index(med_name)
             if med_label == 0 or med_label == 'norepinephrine':
                 med_label = np.array([1, 0, 0])
             elif med_label == 1 or med_label == 'epinephrine':
@@ -232,7 +235,7 @@ class MergedDataset(Dataset):
             pid, t_start, t_end = self.sample_dict[sampleid]
         # patient information
         info = self.df_info[self.df_info['patientid']==pid]
-        df = pickle.load(open(os.path.join('processed-merge/merged_data_per_pat', f"{pid}.p"), 'rb'))
+        df = pickle.load(open(os.path.join(os.path.join(self.base_path, 'merged_data_per_pat'), f"{pid}.p"), 'rb'))
         # time-series vital sign
         sample = df.loc[(df.index>=t_start) & (df.index<t_end)]
         data = sample[self.selected_physio]
@@ -288,11 +291,16 @@ class MergedDataset(Dataset):
 
         med_acc = med.rolling(self.n_step_med).sum()
         med_acc[pd.isnull(med_acc)] = 0
-        dosage_trend = med.diff()
+        dosage_trend = med[med_name].diff()
         dosage_trend[pd.isnull(dosage_trend)] = 0
         dosage_trend_bool = dosage_trend.copy()
         dosage_trend_bool[dosage_trend_bool > 0] = 1
-        dosage_trend_bool[dosage_trend_bool < 0] = -1
+        dosage_trend_bool[dosage_trend_bool < 0] = 2
+        dosage_trend_bool = F.one_hot(torch.Tensor(dosage_trend_bool).long(), num_classes=3)
+        if dosage_trend_bool.shape != (180,3):
+            print(dosage_trend_bool.shape)
+        # # print(f"DOSAGE BOOL - {dosage_trend_bool.shape}")
+
 
         return {
             'info': {
@@ -308,7 +316,7 @@ class MergedDataset(Dataset):
             'med_label': med_label,
             'med_acc': med_acc.to_numpy(),
             'dosage_trend': dosage_trend.to_numpy(),
-            'dosage_trend_bool': dosage_trend_bool.to_numpy(),
+            'dosage_trend_bool': dosage_trend_bool,
             'resp_failure': resp_failure,
             'circ_failure': circ_failure,
             'los': los,
@@ -336,7 +344,7 @@ if __name__ == '__main__':
     selected_physio = ['HR', 'RR', 'SpO2', 'ABPd', 'ABPm', 'ABPs', 'ZVD']
     selected_med = ['norepinephrine', 'epinephrine', 'dobutamine']
 
-    dataset = MergedDataset(sample_dict=sample_dict, df_info=patient_info, norm=True, selected_physio=selected_physio, selected_med=selected_med)
+    dataset = MergedDataset(basepath=data_path, sample_dict=sample_dict, df_info=patient_info, norm=True, selected_physio=selected_physio, selected_med=selected_med)
     loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=1)
 
     for sample in loader:

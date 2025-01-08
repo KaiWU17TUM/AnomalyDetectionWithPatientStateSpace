@@ -13,7 +13,8 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from utils.config_dataset import *
 from utils.data_io import load_train_test_dataset
-from utils.ClassMonoModel import AE_PHYSIO
+from utils.ClassMonoModel import AE_PHYSIO, AE_MED_PHYSIO
+from utils.ClassSOM import VASO_PHYSIO_PRED
 
 RANDOMSEED=2024
 torch.manual_seed(RANDOMSEED)
@@ -24,25 +25,28 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 if __name__ == '__main__':
     base_path = 'processed-merge-v3/'
-    model_type = 'AE_PHYSIO'
+    model_type = 'AE_MED_PHYSIO'  # 'AE_PHYSIO' / 'AE_MED_PHYSIO' / 'VASO_PHYSIO_PRED'
 
     device = 'cuda'
-    batchsize = 32
+    batchsize = 16
     lr = 5e-4
     seq_len = 180
     n_feat = 7
+    n_feat_med = 3
     encoder_type = 'TCN'    # 'CNN' / 'TCN'
     n_emb = 168             # CNN: 196 / TCN: 168
     n_emb_info = 16
     dropout = 0.1
+    alpha = 10
+    beta = 5
 
-    model_name = f"CONTROL{encoder_type}-{n_emb}hidden-{dropout}dropout-{batchsize}-{lr}"
+    model_name = f"VASO-{encoder_type}-{n_emb}hidden-{dropout}dropout-{batchsize}-{lr}"
     print(model_type, model_name)
 
     DATA = load_train_test_dataset(
         batchsize=batchsize,
-        sample_dict_file='sample_dict_control_filtered80.p',
-        type='control',
+        sample_dict_file='sample_dict_vasopressor_filtered80.p',
+        type='vaso',
         RANDOMSEED=RANDOMSEED, norm=True, smooth=True, interpolate=True,
         data_path=base_path
     )
@@ -64,14 +68,21 @@ if __name__ == '__main__':
         "lr": lr,
         "seq_len": seq_len,
         "n_feat": n_feat,
+        "n_feat_med": n_feat_med,
         "encoder_type": encoder_type,
         "n_emb": n_emb,
         "n_emb_info": n_emb_info,
         "dropout": dropout,
+        "alpha": alpha,
+        "beta": beta,
     }
 
     if model_type == 'AE_PHYSIO':
-        model = AE_PHYSIO(config).to(device)
+        model = AE_PHYSIO(config).to(device)    # without considering med effect
+    elif model_type == 'AE_MED_PHYSIO':
+        model = AE_MED_PHYSIO(config).to(device)
+    elif model_type == 'VASO_PHYSIO_PRED':
+        model = VASO_PHYSIO_PRED(config).to(device)
     else:
         print(f'{model_type} is not supported!')
 

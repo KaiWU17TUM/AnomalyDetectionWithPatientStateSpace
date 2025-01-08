@@ -44,7 +44,7 @@ def load_train_test_dataset(
         RANDOMSEED=2024,
         norm=True, smooth=True, interpolate=True,
         n_step=3, n_step_med=15,
-        data_path='processed-merge/'):
+        data_path='processed-merge-v3/'):
     # load data
     print("Loading dataset")
     try:
@@ -85,18 +85,21 @@ def load_train_test_dataset(
         print(f"PID TRAIN: {len(pid_tr)}, PID VAL: {len(pid_val)}, PID TEST: {len(pid_test)}")
         print(f"SAMPLE TRAIN: {len(sampleid_tr)}, SAMPLE VAL: {len(sampleid_val)}, SAMPLE TEST: {len(sampleid_test)}")
     dataset_train = MergedDataset(
+        base_path=data_path,
         sample_dict={item[0]: item[1] for item in sample_dict.items() if item[0] in sampleid_tr},
         df_info=patient_info, type=type,
         norm=norm, smooth=smooth, interpolate=interpolate,
         n_step=n_step, n_step_med=n_step_med,
         selected_physio=selected_physio, selected_med=selected_med)
     dataset_val = MergedDataset(
+        base_path=data_path,
         sample_dict={item[0]: item[1] for item in sample_dict.items() if item[0] in sampleid_val},
         df_info=patient_info, type=type,
         norm=norm, smooth=smooth, interpolate=interpolate,
         n_step=n_step, n_step_med=n_step_med,
         selected_physio=selected_physio, selected_med=selected_med)
     dataset_test = MergedDataset(
+        base_path=data_path,
         sample_dict={item[0]: item[1] for item in sample_dict.items() if item[0] in sampleid_test},
         df_info=patient_info, type=type,
         norm=norm, smooth=smooth, interpolate=interpolate,

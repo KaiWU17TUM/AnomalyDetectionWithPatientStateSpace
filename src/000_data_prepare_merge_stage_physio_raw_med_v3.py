@@ -508,6 +508,7 @@ if __name__ == '__main__':
     selected_med = ['norepinephrine', 'epinephrine', 'dobutamine']
 
     dataset = MergedDataset(
+        base_path=save_path,
         sample_dict=sample_dict_vasopressor,
         df_info=patient_info,
         type='vaso',
@@ -516,6 +517,7 @@ if __name__ == '__main__':
     )
 
     dataset_control = MergedDataset(
+        base_path=save_path,
         sample_dict=sample_dict_control,
         df_info=patient_info,
         type='control',
