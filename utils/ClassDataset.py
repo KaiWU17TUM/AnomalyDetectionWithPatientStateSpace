@@ -255,6 +255,8 @@ class MergedDataset(Dataset):
         apache = info['APACHE MERGED'].item()
         apache = APACHE_BENCHMARK_MERGE_INDEX[apache]
         apache = F.one_hot(torch.Tensor([apache]).long(), num_classes=15).flatten()
+        discharge_status = info['discharge_status'].item()
+        discharge_status = 1 if discharge_status=='alive' else 0
 
         if self.norm:
             age = (age - self.norm_params_info['age'].loc['min']) / (self.norm_params_info['age'].loc['max'] - self.norm_params_info['age'].loc['min'])
@@ -278,13 +280,30 @@ class MergedDataset(Dataset):
                 # data_ = data_[~pd.isnull(data_)]
                 x = data_.index.to_numpy()
                 y = data_.values
-                smoothed = lowess(exog=x, endog=y, frac=0.05, missing='drop', is_sorted=True)
+                smoothed = lowess(exog=x, endog=y, frac=0.1, it=3, missing='drop', is_sorted=True)
                 # smoothed_nan = np.isnan(smoothed).sum()
                 # plt.plot(data[col].values)
                 # plt.plot(smoothed[:,0], smoothed[:,1], linestyle='--')
                 # plt.title(col)
                 # plt.show()
                 data[col].iloc[smoothed[:,0].astype(int)] = smoothed[:,1]
+
+        # ##############################################################################
+        # fig, ax = plt.subplots(2, 3, figsize=(16, 8), sharex=True)
+        # physio_plot = [
+        #     'HR',
+        #     'RR',
+        #     'ABPm',
+        #     'ABPd',
+        #     'ABPs',
+        #     'ZVD',
+        # ]
+        # for i, physio in enumerate(physio_plot):
+        #     ax[i // 3][i % 3].plot(data[physio])
+        #     ax[i // 3][i % 3].set_title(f"{physio}")
+        # plt.show()
+        #
+        # ##############################################################################
 
         # data_regression = data.rolling(self.n_step).mean().shift(self.n_step - 1)
         data_regression = data.rolling(self.n_step, center=True).mean().shift(-1)
@@ -308,6 +327,7 @@ class MergedDataset(Dataset):
                 'height': torch.Tensor([height]),
                 'sex': sex,
                 'apache': apache,
+                'discharge_status': discharge_status,
             },
             'data': data.to_numpy(),
             'data_mask': data_mask.to_numpy(),

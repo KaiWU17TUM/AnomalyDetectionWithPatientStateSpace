@@ -3,6 +3,8 @@ from pathlib import Path
 import time
 
 import torch
+from torch.utils.data import DataLoader
+
 
 from sklearn.model_selection import train_test_split
 
@@ -12,9 +14,9 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from utils.config_dataset import *
+from utils.ClassDataset import MergedDataset
+from utils.ClassCLF import CONDITION_CLF, CONDITION_CLF_TCN, CONDITION_CLF_TCN_WITH_MED
 from utils.data_io import load_train_test_dataset
-from utils.ClassMonoModel import AE_PHYSIO, AE_MED_PHYSIO
-from utils.ClassSOM import VASO_PHYSIO_PRED
 
 RANDOMSEED=2024
 torch.manual_seed(RANDOMSEED)
@@ -23,26 +25,33 @@ np.random.seed(RANDOMSEED)
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
+
 if __name__ == '__main__':
     base_path = 'processed-merge-v3/'
-    model_type = 'AE_MED_PHYSIO'  # 'AE_PHYSIO' / 'AE_MED_PHYSIO' / 'VASO_PHYSIO_PRED'
+    model_type = 'CONDITION_CLF'        # 'CONDITION_CLF' / "CONDITION_CLF_TCN" / "CONDITION_CLF_FC"
 
     device = 'cuda'
     batchsize = 16
-    lr = 5e-4
+    lr = 1e-4
     seq_len = 180
     n_feat = 7
-    n_feat_med = 3
-    encoder_type = 'TCN'    # 'CNN' / 'TCN'
-    n_emb = 168             # CNN: 196 / TCN: 168
+    n_feat_med =3
+    target = 'discharge_status'      # "discharge_status" / "circ_failure" / "los"
+    thres_los = 5    # valid if target == "los": 1 / 3 / 5
+    n_emb = 168
     n_emb_info = 16
     dropout = 0.1
-    alpha = 10
-    beta = 5
+    ae_model_path = 'models/AE_MED_PHYSIO/VASO-TCN-168hidden-0.1dropout-16-0.0005/version_3'
 
-    model_name = f"VASO-{encoder_type}-{n_emb}hidden-{dropout}dropout-{batchsize}-{lr}"
+
+    if target == "los":
+        model_name = f"{target}{thres_los}-{n_emb}hidden-{dropout}dropout-{batchsize}-{lr}"
+    else:
+        model_name = f"{target}-{n_emb}hidden-{dropout}dropout-{batchsize}-{lr}"
     print(model_type, model_name)
 
+    # load data
+    # print("Loading dataset")
     DATA = load_train_test_dataset(
         batchsize=batchsize,
         sample_dict_file='sample_dict_vasopressor_filtered70.p',
@@ -66,23 +75,23 @@ if __name__ == '__main__':
         "device": device,
         "batchsize": batchsize,
         "lr": lr,
+        "ae_model_path": ae_model_path,
+        "target": target,
+        "thres_los": thres_los,
         "seq_len": seq_len,
         "n_feat": n_feat,
         "n_feat_med": n_feat_med,
-        "encoder_type": encoder_type,
         "n_emb": n_emb,
         "n_emb_info": n_emb_info,
         "dropout": dropout,
-        "alpha": alpha,
-        "beta": beta,
     }
 
-    if model_type == 'AE_PHYSIO':
-        model = AE_PHYSIO(config).to(device)    # without considering med effect
-    elif model_type == 'AE_MED_PHYSIO':
-        model = AE_MED_PHYSIO(config).to(device)
-    elif model_type == 'VASO_PHYSIO_PRED':
-        model = VASO_PHYSIO_PRED(config).to(device)
+    if model_type == 'CONDITION_CLF':
+        model = CONDITION_CLF(config).to(device)
+    elif model_type == 'CONDITION_CLF_TCN':
+        model = CONDITION_CLF_TCN(config).to(device)
+    elif model_type == 'CONDITION_CLF_TCN_WITH_MED':
+        model = CONDITION_CLF_TCN_WITH_MED(config).to(device)
     else:
         print(f'{model_type} is not supported!')
 
@@ -105,17 +114,17 @@ if __name__ == '__main__':
             auto_insert_metric_name=False
         ),
         ModelCheckpoint(
-            monitor='val_loss_pred',
-            mode='min',
+            monitor='val_roc',
+            mode='max',
             save_top_k=1,
             dirpath=f'{model_save_path}/version_{version}',
-            filename='epoch{epoch:02d}-val_loss_pred{val_loss_pred:.5f}',
+            filename='epoch{epoch:02d}-val_roc{val_roc:.5f}',
             auto_insert_metric_name=False
         ),
         EarlyStopping(
             monitor='val_loss',
             mode='min',
-            patience=30,
+            patience=15,
         )
     ]
 
@@ -139,4 +148,3 @@ if __name__ == '__main__':
 
     with open(f'{model_save_path}/train_time.txt', 'a') as train_time_file:
         train_time_file.write(f'{model_name}: {train_time_total}\n')
-

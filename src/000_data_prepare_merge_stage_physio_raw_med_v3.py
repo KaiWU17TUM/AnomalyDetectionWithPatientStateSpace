@@ -486,16 +486,16 @@ if __name__ == '__main__':
 
 
     # calculate normalization parameters for patient information
-    patient_info = pickle_load(os.path.join(save_path, 'patient_info.p'))
-
-    df_statistics_info = []
-    pids = [sample_dict_vasopressor[i][1] for i in sample_dict_vasopressor] + [sample_dict_control[i][0] for i in sample_dict_control]
-    pids = list(set(pids))
-    for pid in tqdm(pids):
-        df_statistics_info.append(patient_info[patient_info['patientid'] == pid])
-    df_statistics_info = pd.concat(df_statistics_info)
-    norm_params_info = df_statistics_info.describe(percentiles=[.001, .01, .05, .1, .25, .5, .75, .9, .95, .99, .999])
-    pickle_dump(norm_params_info, os.path.join(save_path, 'norm_params_info.p'))
+    # patient_info = pickle_load(os.path.join(save_path, 'patient_info.p'))
+    #
+    # df_statistics_info = []
+    # pids = [sample_dict_vasopressor[i][1] for i in sample_dict_vasopressor] + [sample_dict_control[i][0] for i in sample_dict_control]
+    # pids = list(set(pids))
+    # for pid in tqdm(pids):
+    #     df_statistics_info.append(patient_info[patient_info['patientid'] == pid])
+    # df_statistics_info = pd.concat(df_statistics_info)
+    # norm_params_info = df_statistics_info.describe(percentiles=[.001, .01, .05, .1, .25, .5, .75, .9, .95, .99, .999])
+    # pickle_dump(norm_params_info, os.path.join(save_path, 'norm_params_info.p'))
 
 
 
@@ -534,7 +534,7 @@ if __name__ == '__main__':
             missing1 = np.isnan(sample['data'][:90, :]).sum() / 90 / 7
             missing2 = np.isnan(sample['data'][90:, :]).sum() / 90 / 7
 
-            if missing1 <= 1 - perc/100 or missing2 <= 1 - perc/100:
+            if missing1 <= 1 - perc/100 and missing2 <= 1 - perc/100:
                 sample_dict_filtered[idx_new] = sample_dict_vasopressor[idx]
                 idx_new += 1
             else:

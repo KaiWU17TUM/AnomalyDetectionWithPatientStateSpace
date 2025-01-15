@@ -355,6 +355,8 @@ class AE_PHYSIO(BASE_MODEL):
 class AE_MED_PHYSIO(BASE_MODEL):
     def __init__(self, config):
         super().__init__(config)
+        self.alpha = config['alpha']
+        self.beta = config['beta']
 
         self.init_encoder()
         if config['encoder_type'] == 'CNN':
@@ -453,13 +455,14 @@ class AE_MED_PHYSIO(BASE_MODEL):
                                                          self.decoder_pred[0].weight) \
                               + self.loss_weight_constrait(self.decoder_ae[2].weight,
                                                            self.decoder_pred[2].weight)
+        loss_smooth = ((x_next_hat.diff()**2) + (x_hat.diff()**2)).mean()
 
         # loss = self.alpha * loss_pred + self.beta * loss_ae
-        loss = loss_pred + loss_ae + 0.2 * loss_similarity_dec
+        loss = self.alpha * loss_pred + self.beta * loss_ae + loss_similarity_dec + .1 * loss_smooth
 
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        for loss_, loss_type in zip([loss_ae, loss_pred, loss_similarity_dec],
-                                    ['loss_reconst', 'loss_pred', 'loss_constrain']):
+        for loss_, loss_type in zip([loss_ae, loss_pred, loss_similarity_dec, loss_smooth],
+                                    ['loss_reconst', 'loss_pred', 'loss_constrain', 'loss_smooth']):
             self.log("train_" + loss_type, loss_, on_step=False, on_epoch=True,
                      prog_bar=True, logger=True)
         return loss
@@ -477,14 +480,15 @@ class AE_MED_PHYSIO(BASE_MODEL):
                                                          self.decoder_pred[0].weight) \
                               + self.loss_weight_constrait(self.decoder_ae[2].weight,
                                                            self.decoder_pred[2].weight)
+        loss_smooth = ((x_next_hat.diff()**2) + (x_hat.diff()**2)).mean()
 
         # loss = self.alpha * loss_pred + self.beta * loss_ae
-        loss = loss_pred + loss_ae + 0.2 * loss_similarity_dec
+        loss = self.alpha * loss_pred + self.beta * loss_ae + loss_similarity_dec + .1 * loss_smooth
 
         outputs = {'val_loss': loss}
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        for loss_, loss_type in zip([loss_ae, loss_pred, loss_similarity_dec],
-                                    ['loss_reconst', 'loss_pred', 'loss_constrain']):
+        for loss_, loss_type in zip([loss_ae, loss_pred, loss_similarity_dec, loss_smooth],
+                                    ['loss_reconst', 'loss_pred', 'loss_constrain', 'loss_smooth']):
             self.log("val_" + loss_type, loss_, on_step=False, on_epoch=True,
                      prog_bar=True, logger=True)
         return outputs
@@ -502,14 +506,15 @@ class AE_MED_PHYSIO(BASE_MODEL):
                                                          self.decoder_pred[0].weight) \
                               + self.loss_weight_constrait(self.decoder_ae[2].weight,
                                                            self.decoder_pred[2].weight)
+        loss_smooth = ((x_next_hat.diff()**2) + (x_hat.diff()**2)).mean()
 
         # loss = self.alpha * loss_pred + self.beta * loss_ae
-        loss = loss_pred + loss_ae + 0.2 * loss_similarity_dec
+        loss = self.alpha * loss_pred + self.beta * loss_ae + loss_similarity_dec + .1 * loss_smooth
 
         outputs = {'test_loss': loss}
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        for loss_, loss_type in zip([loss_ae, loss_pred, loss_similarity_dec],
-                                    ['loss_reconst', 'loss_pred', 'loss_constrain']):
+        for loss_, loss_type in zip([loss_ae, loss_pred, loss_similarity_dec, loss_smooth],
+                                    ['loss_reconst', 'loss_pred', 'loss_constrain', 'loss_smooth']):
             self.log("test_" + loss_type, loss_, on_step=False, on_epoch=True,
                      prog_bar=True, logger=True)
         return outputs
@@ -674,7 +679,8 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
         self.n_groupsort = config['n_groupsort']
         self.monotonic_constraints_physio = config['monotonic_constraints_physio']
         # self.monotonic_constraints_med = config['monotonic_constraints_med']
-        self.alpha = config['alpha']
+        self.alpha1 = config['alpha1']
+        self.alpha2 = config['alpha2']
         self.beta = config['beta']
         self.last_epoch = 0
 
@@ -794,28 +800,27 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
         # print(x_mask.sum())
         x_next_hat, x_next_ar, x_delta_med, x_diff, x_diff_acc = self.forward(batch)
 
-        x_pred1 = x_next_hat[:, :self.seq_len//3-self.n_step_med]
-        x_pred2 = x_next_hat[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
-        x_pred3 = x_next_hat[:, 2*self.seq_len//3-self.n_step_med:]
-        x_reg1 = x_regression[:, :self.seq_len//3-self.n_step_med]
-        x_reg2 = x_regression[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
-        x_reg3 = x_regression[:, 2*self.seq_len//3-self.n_step_med:]
-        loss_before = mse_loss(x_pred1, x_reg1)
-        loss_med_effect = mse_loss(x_pred2, x_reg2)
-        loss_after = mse_loss(x_pred3, x_reg3)
+        # x_pred1 = x_next_hat[:, :self.seq_len//3-self.n_step_med]
+        # x_pred2 = x_next_hat[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
+        # x_pred3 = x_next_hat[:, 2*self.seq_len//3-self.n_step_med:]
+        # x_reg1 = x_regression[:, :self.seq_len//3-self.n_step_med]
+        # x_reg2 = x_regression[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
+        # x_reg3 = x_regression[:, 2*self.seq_len//3-self.n_step_med:]
+
+        loss_ar_only = mae_loss(x_next_ar, x_regression)
+        loss_ar_smooth = (x_next_ar.diff(dim=1)**2).sum()
+        loss_ar = mae_loss(x_next_hat, x_regression)
+        # loss_before = mse_loss(x_pred1, x_reg1)
+        # loss_med_effect = mse_loss(x_pred2, x_reg2)
+        # loss_after = mse_loss(x_pred3, x_reg3)
 
         loss_med_constraint = self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 0][:, 75:-1, None]) + \
                               self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 1][:, 75:-1, None]) + \
                               self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 2][:, 75:-1, None])
         loss_med_constraint = loss_med_constraint.mean()
 
-        # loss_med_constraint_acc = self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 0][:, 75:-1, None]) + \
-        #                           self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 1][:, 75:-1, None]) + \
-        #                           self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 2][:, 75:-1, None])
-        # loss_med_constraint_acc = loss_med_constraint_acc.mean()
-
-        loss_ar = loss_before + self.alpha * loss_med_effect + loss_after
-        loss = loss_before + self.alpha * loss_med_effect + loss_after + \
+        # loss_ar = loss_before + loss_med_effect + loss_after
+        loss = self.alpha1 * loss_ar + self.alpha2 * (loss_ar_only + loss_ar_smooth) + \
             self.beta * loss_med_constraint
 
         if self.current_epoch != self.last_epoch:
@@ -823,20 +828,21 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
             fig, ax = plt.subplots(2,1,figsize=(10,6))
             fig.suptitle(f'Epoch: {self.current_epoch} - cumsum')
             ax[0].plot(batch['data'][1, self.n_step_med:(self.seq_len - self.n_step + 1), 4].cpu(), label='raw')
-            # ax[0].plot(x_regression[1, :].detach().cpu(), label='regression')
+            ax[0].plot(x_regression[1, :].detach().cpu(), label='regression')
             ax[0].plot(x_next_hat[1, :].detach().cpu(), label='pred')
             ax[0].plot(x_next_ar[1, :].detach().cpu(), label='pred_ar')
             ax[0].plot(x_delta_med[1, :].detach().cpu(), label='med_delta')
-            ax[0].plot(x_diff[1, :].detach().cpu(), label='x_delta')
-            ax[0].plot(x_diff_acc[1, :].detach().cpu(), label='x_delta_cumsum')
+            # ax[0].plot(x_diff[1, :].detach().cpu(), label='x_delta')
+            # ax[0].plot(x_diff_acc[1, :].detach().cpu(), label='x_delta_cumsum')
             ax[0].legend()
             ax[1].plot(batch['med'][1, self.n_step_med:(self.seq_len - self.n_step + 1), :3].cpu(), label='med')
-            fig.suptitle(f"DTW: {loss_med_constraint:.4f} - AR: {loss_ar:.4f}")
+            fig.suptitle(f"DTW: {loss_med_constraint:.4f} - AR: {loss_ar:.4f} - AR ONLY - {loss_ar_only:.4f}")
             plt.show()
             self.last_epoch = self.current_epoch
 
         self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        for loss_, loss_type in zip([loss_med_constraint, loss_ar], ['cstr', 'loss_ar']):
+        for loss_, loss_type in zip([loss_med_constraint, loss_ar, loss_ar_only, loss_ar_smooth],
+                                    ['cstr', 'loss_ar', 'ar_only', 'ar_smooth']):
             self.log("train_" + loss_type, loss_, on_step=False, on_epoch=True,
                      prog_bar=True, logger=True)
         return loss
@@ -855,33 +861,33 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
         # print(x_mask.sum())
         x_next_hat, x_next_ar, x_delta_med, x_diff, x_diff_acc = self.forward(batch)
 
-        x_pred1 = x_next_hat[:, :self.seq_len // 3 - self.n_step_med]
-        x_pred2 = x_next_hat[:, self.seq_len // 3 - self.n_step_med: 2 * self.seq_len // 3 - self.n_step_med]
-        x_pred3 = x_next_hat[:, 2 * self.seq_len // 3 - self.n_step_med:]
-        x_reg1 = x_regression[:, :self.seq_len // 3 - self.n_step_med]
-        x_reg2 = x_regression[:, self.seq_len // 3 - self.n_step_med: 2 * self.seq_len // 3 - self.n_step_med]
-        x_reg3 = x_regression[:, 2 * self.seq_len // 3 - self.n_step_med:]
-        loss_before = mse_loss(x_pred1, x_reg1)
-        loss_med_effect = mse_loss(x_pred2, x_reg2)
-        loss_after = mse_loss(x_pred3, x_reg3)
+        # x_pred1 = x_next_hat[:, :self.seq_len//3-self.n_step_med]
+        # x_pred2 = x_next_hat[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
+        # x_pred3 = x_next_hat[:, 2*self.seq_len//3-self.n_step_med:]
+        # x_reg1 = x_regression[:, :self.seq_len//3-self.n_step_med]
+        # x_reg2 = x_regression[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
+        # x_reg3 = x_regression[:, 2*self.seq_len//3-self.n_step_med:]
+
+        loss_ar_only = mae_loss(x_next_ar, x_regression)
+        loss_ar_smooth = (x_next_ar.diff(dim=1) ** 2).sum()
+        loss_ar = mae_loss(x_next_hat, x_regression)
+        # loss_before = mse_loss(x_pred1, x_reg1)
+        # loss_med_effect = mse_loss(x_pred2, x_reg2)
+        # loss_after = mse_loss(x_pred3, x_reg3)
 
         loss_med_constraint = self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 0][:, 75:-1, None]) + \
                               self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 1][:, 75:-1, None]) + \
                               self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 2][:, 75:-1, None])
         loss_med_constraint = loss_med_constraint.mean()
 
-        # loss_med_constraint_acc = self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 0][:, 75:-1, None]) + \
-        #                           self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 1][:, 75:-1, None]) + \
-        #                           self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 2][:, 75:-1, None])
-        # loss_med_constraint_acc = loss_med_constraint_acc.mean()
-
-        loss_ar = loss_before + self.alpha * loss_med_effect + loss_after
-        loss = loss_before + self.alpha * loss_med_effect + loss_after + \
+        # loss_ar = loss_before + loss_med_effect + loss_after
+        loss = self.alpha1 * loss_ar + self.alpha2 * (loss_ar_only + loss_ar_smooth) + \
                self.beta * loss_med_constraint
 
         outputs = {'val_loss': loss, 'val_loss_ar': loss_ar}
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        for loss_, loss_type in zip([loss_med_constraint, loss_ar], ['cstr', 'loss_ar']):
+        for loss_, loss_type in zip([loss_med_constraint, loss_ar, loss_ar_only, loss_ar_smooth],
+                                    ['cstr', 'loss_ar', 'ar_only', 'ar_smooth']):
             self.log("val_" + loss_type, loss_, on_step=False, on_epoch=True,
                      prog_bar=True, logger=True)
         return outputs
@@ -900,34 +906,33 @@ class MED_ITERATIVE_MONO(BASE_MODEL):
         # print(x_mask.sum())
         x_next_hat, x_next_ar, x_delta_med, x_diff, x_diff_acc = self.forward(batch)
 
-        x_pred1 = x_next_hat[:, :self.seq_len // 3 - self.n_step_med]
-        x_pred2 = x_next_hat[:, self.seq_len // 3 - self.n_step_med: 2 * self.seq_len // 3 - self.n_step_med]
-        x_pred3 = x_next_hat[:, 2 * self.seq_len // 3 - self.n_step_med:]
-        x_reg1 = x_regression[:, :self.seq_len // 3 - self.n_step_med]
-        x_reg2 = x_regression[:, self.seq_len // 3 - self.n_step_med: 2 * self.seq_len // 3 - self.n_step_med]
-        x_reg3 = x_regression[:, 2 * self.seq_len // 3 - self.n_step_med:]
-        loss_before = mse_loss(x_pred1, x_reg1)
-        loss_med_effect = mse_loss(x_pred2, x_reg2)
-        loss_after = mse_loss(x_pred3, x_reg3)
+        # x_pred1 = x_next_hat[:, :self.seq_len//3-self.n_step_med]
+        # x_pred2 = x_next_hat[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
+        # x_pred3 = x_next_hat[:, 2*self.seq_len//3-self.n_step_med:]
+        # x_reg1 = x_regression[:, :self.seq_len//3-self.n_step_med]
+        # x_reg2 = x_regression[:, self.seq_len//3-self.n_step_med : 2*self.seq_len//3-self.n_step_med]
+        # x_reg3 = x_regression[:, 2*self.seq_len//3-self.n_step_med:]
+
+        loss_ar_only = mae_loss(x_next_ar, x_regression)
+        loss_ar_smooth = (x_next_ar.diff(dim=1) ** 2).sum()
+        loss_ar = mae_loss(x_next_hat, x_regression)
+        # loss_before = mse_loss(x_pred1, x_reg1)
+        # loss_med_effect = mse_loss(x_pred2, x_reg2)
+        # loss_after = mse_loss(x_pred3, x_reg3)
 
         loss_med_constraint = self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 0][:, 75:-1, None]) + \
                               self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 1][:, 75:-1, None]) + \
                               self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med[:, :, 2][:, 75:-1, None])
         loss_med_constraint = loss_med_constraint.mean()
 
-        # loss_med_constraint_acc = self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 0][:, 75:-1, None]) + \
-        #                           self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 1][:, 75:-1, None]) + \
-        #                           self.loss_soft_dtw(x_diff_acc[:, 75:, None], x_med_acc[:, :, 2][:, 75:-1, None])
-        # loss_med_constraint_acc = loss_med_constraint_acc.mean()
-
-
-        loss_ar = loss_before + self.alpha * loss_med_effect + loss_after
-        loss = loss_before + self.alpha * loss_med_effect + loss_after + \
+        # loss_ar = loss_before + loss_med_effect + loss_after
+        loss = self.alpha1 * loss_ar + self.alpha2 * (loss_ar_only + loss_ar_smooth) + \
                self.beta * loss_med_constraint
 
         outputs = {'test_loss': loss, 'test_loss_ar': loss_ar}
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        for loss_, loss_type in zip([loss_med_constraint, loss_ar], ['cstr', 'loss_ar']):
+        for loss_, loss_type in zip([loss_med_constraint, loss_ar, loss_ar_only, loss_ar_smooth],
+                                    ['cstr', 'loss_ar', 'ar_only', 'ar_smooth']):
             self.log("test_" + loss_type, loss_, on_step=False, on_epoch=True,
                      prog_bar=True, logger=True)
         return outputs
